@@ -95,8 +95,6 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         settings.app.artifacts_dir = Path(artifacts_dir)
     if frontend_dist := os.getenv("AUTO_TUNER_FRONTEND_DIST"):
         settings.app.frontend_dist = Path(frontend_dist)
-    if backend := os.getenv("AUTO_TUNER_BACKEND"):
-        settings.training.backend = backend
     if openrouter_key := os.getenv("OPENROUTER_API_KEY"):
         settings.openrouter.api_key = openrouter_key
 

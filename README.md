@@ -115,7 +115,7 @@ Install optional dependencies:
 
 ```bash
 uv sync --extra dev --extra unsloth
-AUTO_TUNER_BACKEND=unsloth uv run auto-tuner run --config examples/sample_experiment.toml
+uv run auto-tuner run --config examples/sample_experiment.toml
 ```
 
 The Unsloth backend attempts live fine-tuning only when the environment is compatible. On unsupported environments such as local macOS, it returns a guarded unsupported result instead of trying to train.

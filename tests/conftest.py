@@ -16,5 +16,4 @@ def sample_config_path() -> Path:
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("AUTO_TUNER_ARTIFACTS_DIR", str(tmp_path / ".artifacts"))
-    monkeypatch.setenv("AUTO_TUNER_BACKEND", "fake")
     return TestClient(app)

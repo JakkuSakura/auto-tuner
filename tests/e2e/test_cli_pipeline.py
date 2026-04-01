@@ -12,7 +12,6 @@ runner = CliRunner()
 
 def test_cli_run_creates_artifacts(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AUTO_TUNER_ARTIFACTS_DIR", str(tmp_path / ".artifacts"))
-    monkeypatch.setenv("AUTO_TUNER_BACKEND", "fake")
 
     result = runner.invoke(app, ["run", "--config", "examples/sample_experiment.toml"])
 
@@ -28,7 +27,6 @@ def test_cli_run_creates_artifacts(tmp_path: Path, monkeypatch) -> None:
 
 def test_cli_list_runs_shows_created_run(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AUTO_TUNER_ARTIFACTS_DIR", str(tmp_path / ".artifacts"))
-    monkeypatch.setenv("AUTO_TUNER_BACKEND", "fake")
 
     run_result = runner.invoke(app, ["run", "--config", "examples/sample_experiment.toml"])
     assert run_result.exit_code == 0
@@ -40,7 +38,6 @@ def test_cli_list_runs_shows_created_run(tmp_path: Path, monkeypatch) -> None:
 
 def test_cli_export_and_delete_run(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AUTO_TUNER_ARTIFACTS_DIR", str(tmp_path / ".artifacts"))
-    monkeypatch.setenv("AUTO_TUNER_BACKEND", "fake")
 
     run_result = runner.invoke(app, ["run", "--config", "examples/sample_experiment.toml"])
     artifacts_line = next(line for line in run_result.stdout.splitlines() if line.startswith("artifacts="))
