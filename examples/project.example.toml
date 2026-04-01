@@ -7,7 +7,6 @@ sample_count = 3
 
 [grading]
 max_retries = 2
-required_forbidden_patterns = ["getattr(", "hasattr(", ".__dict__", "vars("]
 
 [training]
 backend = "fake"

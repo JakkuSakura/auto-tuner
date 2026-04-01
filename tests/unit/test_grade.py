@@ -6,7 +6,7 @@ from auto_tuner.models.dataset import DatasetExample
 from auto_tuner.pipeline.grade import grade_example
 
 
-def test_grade_example_flags_dynamic_patterns() -> None:
+def test_grade_example_passes_by_default() -> None:
     example = DatasetExample(
         task="task",
         naive_solution="code",
@@ -21,6 +21,6 @@ def test_grade_example_flags_dynamic_patterns() -> None:
 
     result = grade_example(example, GradingConfig(), prompts)
 
-    assert result.passed is False
-    assert "getattr(" in result.violations
+    assert result.passed is True
+    assert result.violations == []
     assert result.grading_prompt == "grading rubric"

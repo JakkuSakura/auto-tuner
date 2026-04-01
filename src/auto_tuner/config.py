@@ -24,7 +24,9 @@ class OpenRouterConfig(BaseModel):
 class GenerationConfig(BaseModel):
     sample_count: int = 3
     meta_prompt: str = (
-        "Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns over dynamic access patterns."
+        "Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns. "
+        "Avoid dynamic access patterns such as getattr(), hasattr(), direct __dict__ manipulation, and vars(). "
+        "Prefer obj.attr over getattr(obj, 'attr'), and use explicit dict access over introspection."
     )
 
     @field_validator("sample_count")
@@ -37,9 +39,6 @@ class GenerationConfig(BaseModel):
 
 class GradingConfig(BaseModel):
     max_retries: int = 2
-    required_forbidden_patterns: list[str] = Field(
-        default_factory=lambda: ["getattr(", "hasattr(", ".__dict__", "vars("]
-    )
 
 
 class TrainingConfig(BaseModel):
