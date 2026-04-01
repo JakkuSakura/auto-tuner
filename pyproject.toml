@@ -1,0 +1,55 @@
+[project]
+name = "auto-tuner"
+version = "0.1.0"
+description = "Synthetic dataset generation and Unsloth-backed fine-tuning orchestrator"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+license = { text = "MIT" }
+authors = [{ name = "Jakku Sakura" }]
+dependencies = [
+  "fastapi>=0.116.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "pydantic>=2.11.0,<3.0.0",
+  "typer>=0.16.0,<1.0.0",
+  "uvicorn>=0.35.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+unsloth = [
+  "unsloth>=2026.3.0",
+  "trl>=0.19.0,<1.0.0",
+  "datasets>=4.0.0,<5.0.0",
+]
+dev = [
+  "pytest>=8.4.0,<9.0.0",
+  "pytest-asyncio>=1.1.0,<2.0.0",
+  "pytest-cov>=6.2.0,<7.0.0",
+  "ruff>=0.12.0,<1.0.0",
+]
+
+[project.scripts]
+auto-tuner = "auto_tuner.cli:app"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/auto_tuner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+  "integration: requires live backend dependencies",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+source = ["src/auto_tuner"]

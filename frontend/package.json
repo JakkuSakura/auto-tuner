@@ -1,0 +1,23 @@
+{
+  "name": "auto-tuner-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.7.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^25.5.0",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.2",
+    "vite": "^8.0.3",
+    "vite-plugin-solid": "^2.11.8"
+  }
+}

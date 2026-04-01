@@ -1,0 +1,33 @@
+[app]
+artifacts_dir = ".artifacts"
+frontend_dist = "frontend/dist"
+
+[openrouter]
+base_url = "https://openrouter.ai/api/v1"
+prompt_model = "openai/gpt-4o-mini"
+grading_model = "openai/gpt-4o-mini"
+http_referer = "http://localhost"
+app_name = "auto-tuner"
+
+[generation]
+sample_count = 3
+auto_tune_prompt = "Tune the model to rewrite code so it avoids dynamic attribute access and prefers direct, explicit patterns."
+
+[grading]
+max_retries = 2
+required_forbidden_patterns = ["getattr(", "hasattr(", ".__dict__", "vars("]
+
+[training]
+backend = "fake"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+max_seq_length = 2048
+load_in_4bit = true
+num_train_epochs = 1
+per_device_train_batch_size = 2
+output_dir = "./output"
+lora_rank = 16
+learning_rate = 0.0002
+
+[demo]
+enabled = true
+example_models = ["Qwen/Qwen2.5-0.5B-Instruct", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"]
