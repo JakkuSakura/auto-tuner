@@ -6,7 +6,7 @@ Turn one high-level tuning goal into a usable fine-tuning workflow.
 
 ## Selling points
 
-- **Prompt-in, pipeline-out** — start from a single auto-tune prompt instead of hand-authoring generation and grading prompts.
+- **Prompt-in, pipeline-out** — start from a single meta-prompt instead of hand-authoring generation and grading prompts.
 - **OpenRouter-backed prompt synthesis** — generate the input/data-generation prompt and grading prompt automatically from the user’s goal.
 - **Production-shaped workflow** — CLI, FastAPI API, and SolidJS web UI all operate on the same run/artifact model.
 - **Deterministic local development** — fake backend and fallback prompt generation keep tests stable without external dependencies.
@@ -16,7 +16,7 @@ Turn one high-level tuning goal into a usable fine-tuning workflow.
 
 ## How it works
 
-1. User provides a generic initial auto-tune prompt.
+1. User provides a generic initial meta-prompt.
 2. OpenRouter derives:
    - a generation prompt that includes concrete task/code examples
    - a grading prompt
@@ -24,13 +24,13 @@ Turn one high-level tuning goal into a usable fine-tuning workflow.
 4. The training backend runs in fake mode by default or guarded Unsloth mode when enabled.
 5. The UI and API expose run history, prompts, reports, and exports.
 
-## Example initial auto-tune prompt
+## Example meta-prompt
 
 ```text
-Tune the model to rewrite code so it avoids dynamic attribute access and prefers direct, explicit patterns.
+Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns over dynamic access patterns.
 ```
 
-The concrete code snippets should be generated later as part of the derived input/data-generation prompt, not hard-coded into the initial high-level goal.
+The initial goal should stay high-level and quality-oriented. Concrete code snippets should be generated later as part of the derived input/data-generation prompt, not hard-coded into the initial prompt.
 
 ## Before / after auto tuning example
 
@@ -68,7 +68,7 @@ def read_value(obj):
 
 ```bash
 uv sync --extra dev
-uv run auto-tuner run --config configs/experiments/sample_experiment.toml
+uv run auto-tuner run --config examples/sample_experiment.toml
 uv run uvicorn auto_tuner.web.app:app --reload
 ```
 
@@ -115,7 +115,7 @@ Install optional dependencies:
 
 ```bash
 uv sync --extra dev --extra unsloth
-AUTO_TUNER_BACKEND=unsloth uv run auto-tuner run --config configs/experiments/sample_experiment.toml
+AUTO_TUNER_BACKEND=unsloth uv run auto-tuner run --config examples/sample_experiment.toml
 ```
 
 The Unsloth backend attempts live fine-tuning only when the environment is compatible. On unsupported environments such as local macOS, it returns a guarded unsupported result instead of trying to train.

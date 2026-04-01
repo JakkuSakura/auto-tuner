@@ -13,7 +13,7 @@ def test_grade_example_flags_dynamic_patterns() -> None:
         clean_solution="return getattr(obj, 'value')",
     )
     prompts = PromptBundle(
-        auto_tune_prompt="goal",
+        meta_prompt="goal",
         generation_prompt="generation",
         grading_prompt="grading rubric",
         source="fallback",

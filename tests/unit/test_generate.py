@@ -7,7 +7,7 @@ from auto_tuner.pipeline.generate import generate_examples
 
 def test_generate_examples_uses_generated_prompt() -> None:
     prompts = PromptBundle(
-        auto_tune_prompt="goal",
+        meta_prompt="goal",
         generation_prompt="generated prompt",
         grading_prompt="grading prompt",
         source="fallback",

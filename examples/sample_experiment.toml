@@ -11,7 +11,7 @@ app_name = "auto-tuner"
 
 [generation]
 sample_count = 3
-auto_tune_prompt = "Tune the model to rewrite code so it avoids dynamic attribute access and prefers direct, explicit patterns."
+meta_prompt = "Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns over dynamic access patterns."
 
 [grading]
 max_retries = 2

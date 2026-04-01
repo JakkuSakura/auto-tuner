@@ -32,7 +32,7 @@ type RunDetail = {
     warnings?: string[];
   };
   prompts: {
-    auto_tune_prompt: string;
+    meta_prompt: string;
     generation_prompt: string;
     grading_prompt: string;
     prompt_source: string;
@@ -46,7 +46,7 @@ type RunDetail = {
     summary: string;
     warnings: string[];
     demo: {
-      auto_tune_prompt: string;
+      meta_prompt: string;
       input_prompt: string;
       grading_prompt: string;
       prompt_source: string;
@@ -113,7 +113,7 @@ export default function App() {
           <p class="text-sm uppercase tracking-[0.3em] text-cyan-400">auto-tuner</p>
           <h1 class="mt-2 text-3xl font-semibold">Synthetic tuning pipeline</h1>
           <p class="mt-3 max-w-3xl text-sm text-slate-300">
-            User auto-tune prompt → OpenRouter-generated generation/grading prompts → dataset → training run.
+            User meta-prompt → OpenRouter-generated generation/grading prompts → dataset → training run.
           </p>
         </header>
 
@@ -128,7 +128,7 @@ export default function App() {
                       Default backend: <span class="text-slate-100">{loaded().backend}</span>
                     </p>
                     <p>
-                      Initial auto-tune prompt:
+                      Initial meta-prompt:
                       <span class="mt-1 block rounded-lg bg-slate-950 p-3 font-mono text-xs text-slate-200">
                         {loaded().defaultPrompt}
                       </span>
@@ -203,7 +203,7 @@ export default function App() {
                         <div>
                           <h3 class="font-medium text-slate-200">Prompts</h3>
                           <div class="mt-3 space-y-3">
-                            <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-200">{detail.prompts.auto_tune_prompt}</pre>
+                            <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-200">{detail.prompts.meta_prompt}</pre>
                             <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-cyan-200">{detail.prompts.generation_prompt}</pre>
                             <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-amber-200">{detail.prompts.grading_prompt}</pre>
                           </div>

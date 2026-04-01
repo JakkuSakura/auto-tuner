@@ -23,8 +23,8 @@ class OpenRouterConfig(BaseModel):
 
 class GenerationConfig(BaseModel):
     sample_count: int = 3
-    auto_tune_prompt: str = (
-        "Refactor Python code to avoid dynamic attribute access and produce direct, explicit solutions."
+    meta_prompt: str = (
+        "Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns over dynamic access patterns."
     )
 
     @field_validator("sample_count")
@@ -83,7 +83,7 @@ class Settings(BaseModel):
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
     candidate = Path(
-        config_path or os.getenv("AUTO_TUNER_CONFIG", "configs/experiments/sample_experiment.toml")
+        config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.toml")
     )
     data: dict[str, object] = {}
     if candidate.exists():

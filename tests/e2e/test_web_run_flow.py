@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def test_web_run_flow(client) -> None:
-    create_response = client.post("/api/runs", params={"config_path": "configs/experiments/sample_experiment.toml"})
+    create_response = client.post("/api/runs", params={"config_path": "examples/sample_experiment.toml"})
     assert create_response.status_code == 200
     payload = create_response.json()
     assert payload["status"] == "completed"

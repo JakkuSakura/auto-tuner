@@ -27,7 +27,7 @@ def _build_demo(settings: Settings, prompts: dict[str, str]) -> dict[str, object
     before = "def read_value(obj):\n    return getattr(obj, 'value')\n"
     after = "def read_value(obj):\n    return obj.value\n"
     return {
-        "auto_tune_prompt": prompts["auto_tune_prompt"],
+        "meta_prompt": prompts["meta_prompt"],
         "input_prompt": prompts["generation_prompt"],
         "grading_prompt": prompts["grading_prompt"],
         "prompt_source": prompts["prompt_source"],
@@ -49,9 +49,9 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
     store.write_config_snapshot(run_paths.config_snapshot_path, config_text)
 
     prompt_provider = build_prompt_provider(settings.openrouter)
-    prompt_bundle = prompt_provider.build_prompts(settings.generation.auto_tune_prompt)
+    prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
     prompts_payload = {
-        "auto_tune_prompt": prompt_bundle.auto_tune_prompt,
+        "meta_prompt": prompt_bundle.meta_prompt,
         "generation_prompt": prompt_bundle.generation_prompt,
         "grading_prompt": prompt_bundle.grading_prompt,
         "prompt_source": prompt_bundle.source,
