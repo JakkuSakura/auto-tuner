@@ -26,6 +26,7 @@ Hard rule: do not use Python reflection/introspection-based access patterns such
 [grading]
 max_retries = 2
 max_passes = 3
+pass_score = 100
 
 [training]
 method = "sft"

@@ -53,12 +53,20 @@ class GenerationConfig(BaseModel):
 class GradingConfig(BaseModel):
     max_retries: int = 2
     max_passes: int = 3
+    pass_score: int = 100
 
     @field_validator("max_passes")
     @classmethod
     def validate_max_passes(cls, value: int) -> int:
         if value < 1:
             raise ValueError("max_passes must be >= 1")
+        return value
+
+    @field_validator("pass_score")
+    @classmethod
+    def validate_pass_score(cls, value: int) -> int:
+        if value < 0 or value > 100:
+            raise ValueError("pass_score must be between 0 and 100")
         return value
 
 

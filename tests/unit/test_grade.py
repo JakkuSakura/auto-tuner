@@ -26,6 +26,6 @@ def test_grade_example_uses_supervisor(monkeypatch) -> None:
     result = grade_example(example, GradingConfig(), prompts, supervisor)
 
     assert result.passed is True
+    assert result.score == 100
     assert result.violations == []
     assert result.grading_prompt == "grading rubric"
-    assert "obj.value" in result.clean_solution

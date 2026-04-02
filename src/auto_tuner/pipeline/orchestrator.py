@@ -64,6 +64,12 @@ def _workspace_pass_dir(workspaces_root: Path, example_id: int, pass_index: int)
     return workspaces_root / f"example_{example_id:04d}" / f"pass_{pass_index:02d}"
 
 
+def _write_target_solution(pass_workspace_dir: Path, solution: str) -> Path:
+    path = pass_workspace_dir / "target_solution.py"
+    path.write_text(solution)
+    return path
+
+
 def run_pipeline(settings: Settings, config_text: str, console=None) -> PipelineRun:
     if not settings.openrouter.api_key:
         raise RuntimeError(
@@ -259,7 +265,23 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 "Strict multi-pass mode is not implemented for training.method='grpo' yet."
             )
 
-        targets: list[str] = [grade.clean_solution for grade in grades]
+        targets: list[str] = []
+        for example_id, grade in enumerate(grades, start=1):
+            if grade.passed:
+                targets.append(generated[example_id - 1].naive_solution)
+                continue
+            pass_workspace_dir = _workspace_pass_dir(
+                run_paths.workspaces_root, example_id, 1
+            )
+            pass_workspace_dir.mkdir(parents=True, exist_ok=True)
+            target = supervisor.generate_target_solution(
+                workspace_dir=pass_workspace_dir,
+                meta_prompt=prompt_bundle.meta_prompt,
+                task=generated[example_id - 1].task,
+                candidate_solution=generated[example_id - 1].naive_solution,
+                grade=grade,
+            )
+            targets.append(target)
 
         configured_output_dir = Path(settings.training.output_dir)
         base_output_dir = (
@@ -277,6 +299,26 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
 
                 pass_root = _round_dir(run_paths.root, pass_index)
                 pass_root.mkdir(parents=True, exist_ok=True)
+
+                for example_id, record in enumerate(workspace_records, start=1):
+                    pass_workspace_dir = _workspace_pass_dir(
+                        run_paths.workspaces_root, example_id, pass_index
+                    )
+                    pass_workspace_dir.mkdir(parents=True, exist_ok=True)
+                    target_solution_path = _write_target_solution(
+                        pass_workspace_dir, targets[example_id - 1]
+                    )
+                    if "passes" not in record:
+                        record["passes"] = []
+                    record["passes"].append(
+                        {
+                            "pass": pass_index,
+                            "workspace_dir": _relative_path(run_paths.root, pass_workspace_dir),
+                            "target_solution_path": _relative_path(
+                                run_paths.root, target_solution_path
+                            ),
+                        }
+                    )
 
                 records = [
                     DatasetRecord(prompt=example.task, response=targets[idx])
@@ -355,6 +397,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 adapter_dir = Path(spec.output_dir)
                 refined_grades: list[dict[str, object]] = []
                 passed_count = 0
+                updated_targets: dict[int, str] = {}
 
                 if console is not None:
                     with Progress(
@@ -396,32 +439,43 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                             ArtifactStore.write_json(
                                 pass_workspace_dir / "refined_grade.json", refined_grade_payload
                             )
-
-                            if "passes" not in record:
-                                record["passes"] = []
-                            record["passes"].append(
-                                {
-                                    "pass": pass_index,
-                                    "workspace_dir": _relative_path(
-                                        run_paths.root, pass_workspace_dir
-                                    ),
-                                    "refined_solution_path": _relative_path(
-                                        run_paths.root, refined_solution_path
-                                    ),
-                                    "refined_grade_path": _relative_path(
-                                        run_paths.root,
-                                        pass_workspace_dir / "refined_grade.json",
-                                    ),
-                                    "passed": refined_grade.passed,
-                                    "severity": refined_grade.severity,
-                                    "violations": refined_grade.violations,
-                                }
-                            )
+                            passes = record.get("passes")
+                            if isinstance(passes, list):
+                                for entry in reversed(passes):
+                                    if (
+                                        isinstance(entry, dict)
+                                        and entry.get("pass") == pass_index
+                                        and entry.get("refined_solution_path") is None
+                                    ):
+                                        entry["refined_solution_path"] = _relative_path(
+                                            run_paths.root, refined_solution_path
+                                        )
+                                        entry["refined_grade_path"] = _relative_path(
+                                            run_paths.root,
+                                            pass_workspace_dir / "refined_grade.json",
+                                        )
+                                        entry["passed"] = refined_grade.passed
+                                        entry["score"] = refined_grade.score
+                                        entry["severity"] = refined_grade.severity
+                                        entry["violations"] = refined_grade.violations
+                                        break
 
                             if refined_grade.passed:
                                 passed_count += 1
                             else:
-                                targets[example_id - 1] = refined_grade.clean_solution
+                                if pass_index < settings.grading.max_passes:
+                                    next_pass_dir = _workspace_pass_dir(
+                                        run_paths.workspaces_root, example_id, pass_index + 1
+                                    )
+                                    next_pass_dir.mkdir(parents=True, exist_ok=True)
+                                    updated = supervisor.generate_target_solution(
+                                        workspace_dir=next_pass_dir,
+                                        meta_prompt=prompt_bundle.meta_prompt,
+                                        task=generated[example_id - 1].task,
+                                        candidate_solution=refined_solution,
+                                        grade=refined_grade,
+                                    )
+                                    updated_targets[example_id] = updated
 
                             refined_grades.append(
                                 {
@@ -431,6 +485,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                                         run_paths.root, pass_workspace_dir
                                     ),
                                     "passed": refined_grade.passed,
+                                    "score": refined_grade.score,
                                     "severity": refined_grade.severity,
                                     "violations": refined_grade.violations,
                                 }
@@ -466,29 +521,43 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                         ArtifactStore.write_json(
                             pass_workspace_dir / "refined_grade.json", refined_grade_payload
                         )
-
-                        if "passes" not in record:
-                            record["passes"] = []
-                        record["passes"].append(
-                            {
-                                "pass": pass_index,
-                                "workspace_dir": _relative_path(run_paths.root, pass_workspace_dir),
-                                "refined_solution_path": _relative_path(
-                                    run_paths.root, refined_solution_path
-                                ),
-                                "refined_grade_path": _relative_path(
-                                    run_paths.root, pass_workspace_dir / "refined_grade.json"
-                                ),
-                                "passed": refined_grade.passed,
-                                "severity": refined_grade.severity,
-                                "violations": refined_grade.violations,
-                            }
-                        )
+                        passes = record.get("passes")
+                        if isinstance(passes, list):
+                            for entry in reversed(passes):
+                                if (
+                                    isinstance(entry, dict)
+                                    and entry.get("pass") == pass_index
+                                    and entry.get("refined_solution_path") is None
+                                ):
+                                    entry["refined_solution_path"] = _relative_path(
+                                        run_paths.root, refined_solution_path
+                                    )
+                                    entry["refined_grade_path"] = _relative_path(
+                                        run_paths.root,
+                                        pass_workspace_dir / "refined_grade.json",
+                                    )
+                                    entry["passed"] = refined_grade.passed
+                                    entry["score"] = refined_grade.score
+                                    entry["severity"] = refined_grade.severity
+                                    entry["violations"] = refined_grade.violations
+                                    break
 
                         if refined_grade.passed:
                             passed_count += 1
                         else:
-                            targets[example_id - 1] = refined_grade.clean_solution
+                            if pass_index < settings.grading.max_passes:
+                                next_pass_dir = _workspace_pass_dir(
+                                    run_paths.workspaces_root, example_id, pass_index + 1
+                                )
+                                next_pass_dir.mkdir(parents=True, exist_ok=True)
+                                updated = supervisor.generate_target_solution(
+                                    workspace_dir=next_pass_dir,
+                                    meta_prompt=prompt_bundle.meta_prompt,
+                                    task=generated[example_id - 1].task,
+                                    candidate_solution=refined_solution,
+                                    grade=refined_grade,
+                                )
+                                updated_targets[example_id] = updated
 
                         refined_grades.append(
                             {
@@ -496,10 +565,14 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                                 "pass": pass_index,
                                 "workspace_dir": _relative_path(run_paths.root, pass_workspace_dir),
                                 "passed": refined_grade.passed,
+                                "score": refined_grade.score,
                                 "severity": refined_grade.severity,
                                 "violations": refined_grade.violations,
                             }
                         )
+
+                for example_id, updated in updated_targets.items():
+                    targets[example_id - 1] = updated
 
                 refined_grades_path = pass_root / "refined_grades.jsonl"
                 store.write_jsonl(refined_grades_path, refined_grades)

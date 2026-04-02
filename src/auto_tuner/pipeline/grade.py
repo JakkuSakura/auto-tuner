@@ -17,13 +17,14 @@ def grade_example(
     supervisor: SupervisorAgent,
     workspace_dir: Path | None = None,
 ) -> GradeResult:
-    return supervisor.grade_example(
+    result = supervisor.grade_example(
         workspace_dir=workspace_dir,
         meta_prompt=prompts.meta_prompt,
         grading_prompt=prompts.grading_prompt,
         task=example.task,
         naive_solution=example.naive_solution,
     )
+    return result.model_copy(update={"passed": bool(result.score >= config.pass_score)})
 
 
 def grade_examples(

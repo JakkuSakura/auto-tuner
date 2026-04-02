@@ -25,6 +25,7 @@ generation:
 grading:
   max_retries: 2
   max_passes: 3
+  pass_score: 100
 
 training:
   method: "sft"

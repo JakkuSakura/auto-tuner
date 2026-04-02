@@ -76,9 +76,14 @@ def install_openrouter_stub(monkeypatch) -> None:
             content = "\n".join(
                 [
                     "```json",
-                    '{ "passed": true, "severity": "none", "violations": [], "suggestion": "" }',
+                    '{ "score": 100, "severity": "none", "violations": [], "suggestion": "" }',
                     "```",
                     "",
+                ]
+            )
+        elif "# auto-tuner target solution request" in prompt:
+            content = "\n".join(
+                [
                     "```python",
                     "def read_value(obj):",
                     "    return obj.value",

@@ -56,6 +56,16 @@ class SupervisorAgent(Protocol):
         naive_solution: str,
     ) -> GradeResult: ...
 
+    def generate_target_solution(
+        self,
+        *,
+        workspace_dir: Path,
+        meta_prompt: str,
+        task: str,
+        candidate_solution: str,
+        grade: GradeResult,
+    ) -> str: ...
+
 
 class OpenRouterSupervisorAgent:
     def __init__(self, config: OpenRouterConfig) -> None:
@@ -215,18 +225,78 @@ class OpenRouterSupervisorAgent:
             (workspace_dir / "grading_output.md").write_text(response)
 
         grade_payload = _extract_json_from_markdown(response)
-        clean_solution = _extract_python_from_markdown(response)
-        if clean_solution is None:
-            raise ValueError("Grading response did not contain a fenced ```python code block.")
+
+        score_raw = grade_payload.get("score", 0)
+        score: int
+        if isinstance(score_raw, int):
+            score = score_raw
+        elif isinstance(score_raw, float):
+            score = int(score_raw)
+        elif isinstance(score_raw, str) and score_raw.strip().isdigit():
+            score = int(score_raw.strip())
+        else:
+            score = 0
+        if score < 0:
+            score = 0
+        if score > 100:
+            score = 100
 
         return GradeResult(
-            passed=bool(grade_payload.get("passed", False)),
+            passed=bool(score == 100),
+            score=score,
             violations=list(grade_payload.get("violations", [])),
             severity=str(grade_payload.get("severity", "none")),
             suggestion=str(grade_payload.get("suggestion", "")),
             grading_prompt=grading_prompt,
-            clean_solution=clean_solution,
         )
+
+    def generate_target_solution(
+        self,
+        *,
+        workspace_dir: Path,
+        meta_prompt: str,
+        task: str,
+        candidate_solution: str,
+        grade: GradeResult,
+    ) -> str:
+        if not self._config.api_key:
+            raise RuntimeError(
+                "OpenRouter API key is required. "
+                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
+            )
+
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        prompt = _build_target_solution_request(
+            meta_prompt=meta_prompt,
+            task=task,
+            candidate_solution=candidate_solution,
+            grade=grade,
+        )
+        (workspace_dir / "target_generation_prompt.md").write_text(prompt)
+        try:
+            response = openrouter_chat_completion(
+                self._config,
+                model=self._config.prompt_model,
+                max_tokens=3072,
+                messages=[*self._system_messages(), {"role": "user", "content": prompt}],
+            )
+        except Exception as exc:  # noqa: BLE001 - boundary error record
+            (workspace_dir / "target_generation_error.md").write_text(str(exc))
+            raise RuntimeError(f"OpenRouter request failed during target generation: {exc}") from exc
+
+        (workspace_dir / "target_generation_output.md").write_text(response)
+        target_solution = _extract_python_from_markdown(response)
+        if target_solution is None:
+            raise RuntimeError(
+                "Target generation response did not contain a fenced ```python code block. "
+                f"See: {workspace_dir / 'target_generation_output.md'}"
+            )
+        if target_solution.strip() in {"...", "# ..."}:
+            raise RuntimeError(
+                "Target generation returned a placeholder ('...') instead of a real file. "
+                f"See: {workspace_dir / 'target_generation_output.md'}"
+            )
+        return target_solution
 
 
 def _build_generation_request(
@@ -346,27 +416,32 @@ def _build_grading_request(
             "",
             "## Output format (strict)",
             "",
-            "Return Markdown with exactly 2 fenced code blocks:",
+            "Return Markdown with exactly 1 fenced code block:",
             "",
             "```json",
-            '{ "passed": true, "severity": "none", "violations": [], "suggestion": "" }',
+            '{ "score": 100, "severity": "none", "violations": [], "suggestion": "" }',
             "```",
             "",
-            "```python",
-            "# full clean_solution.py file",
-            "```",
-            "",
-            "Constraints for clean_solution.py:",
-            "- Must satisfy the meta prompt goal.",
-            "- Must preserve task intent and external behavior.",
-            "- Must avoid reflection/introspection and dynamic dispatch tricks.",
+            "Scoring rules (strict):",
+            "- score is an integer 0..100.",
+            "- score=100 only if the solution fully satisfies the meta prompt goal and rubric, and uses no "
+            "  reflection/introspection-based access patterns.",
+            "- If any forbidden pattern exists (getattr/hasattr/vars/__dict__), score must be <= 20.",
+            "- Include specific violation identifiers in violations (short strings).",
             "",
         ]
     )
 
 
 _JSON_FENCE = re.compile(r"```json\s*\n(?P<body>.*?)\n```", re.DOTALL)
-_PYTHON_FENCE = re.compile(r"```python\s*\n(?P<body>.*?)\n```", re.DOTALL)
+_PYTHON_FENCE_STRICT = re.compile(
+    r"```(?:python|py)\s*\n(?P<body>.*?)\n```",
+    re.DOTALL | re.IGNORECASE,
+)
+_PYTHON_FENCE_UNTERMINATED = re.compile(
+    r"```(?:python|py)\s*\n(?P<body>.*)\Z",
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def _extract_json_from_markdown(markdown_text: str) -> dict[str, object]:
@@ -383,10 +458,84 @@ def _extract_json_from_markdown(markdown_text: str) -> dict[str, object]:
 
 
 def _extract_python_from_markdown(markdown_text: str) -> str | None:
-    match = _PYTHON_FENCE.search(markdown_text)
-    if not match:
-        return None
-    body = match["body"].strip()
-    if not body:
-        return None
-    return body + "\n"
+    strict = _PYTHON_FENCE_STRICT.search(markdown_text)
+    if strict:
+        body = strict["body"].strip()
+        if body:
+            return body + "\n"
+
+    unterminated = _PYTHON_FENCE_UNTERMINATED.search(markdown_text)
+    if unterminated:
+        body = unterminated["body"].strip()
+        if body:
+            return body + "\n"
+
+    if "```" not in markdown_text:
+        candidate = markdown_text.strip()
+        if not candidate:
+            return None
+        lowered = candidate.lower()
+        looks_like_python = any(
+            token in lowered
+            for token in (
+                "import ",
+                "from ",
+                "def ",
+                "class ",
+                "if __name__",
+                "dataclass",
+            )
+        )
+        if looks_like_python:
+            return candidate + "\n"
+
+    return None
+
+
+def _build_target_solution_request(
+    *,
+    meta_prompt: str,
+    task: str,
+    candidate_solution: str,
+    grade: GradeResult,
+) -> str:
+    violations = ", ".join(grade.violations) if grade.violations else "-"
+    return "\n".join(
+        [
+            "# auto-tuner target solution request",
+            "",
+            "You will produce a high-quality target solution for supervised fine-tuning.",
+            "",
+            "## Meta prompt goal",
+            "",
+            meta_prompt.strip(),
+            "",
+            "## Task",
+            "",
+            task.strip(),
+            "",
+            "## Candidate solution (failed or suboptimal)",
+            "",
+            "```python",
+            candidate_solution.rstrip(),
+            "```",
+            "",
+            "## Grade feedback",
+            "",
+            f"- score: {grade.score}",
+            f"- severity: {grade.severity}",
+            f"- violations: {violations}",
+            "",
+            "Suggestion:",
+            grade.suggestion.strip() or "-",
+            "",
+            "## Output format (strict)",
+            "",
+            "Return Markdown with exactly 1 fenced code block containing the full Python file:",
+            "",
+            "```python",
+            "# target_solution.py",
+            "```",
+            "",
+        ]
+    )

@@ -11,11 +11,11 @@ class DatasetExample(BaseModel):
 
 class GradeResult(BaseModel):
     passed: bool
+    score: int = 0
     violations: list[str] = Field(default_factory=list)
     severity: str = "none"
     suggestion: str = ""
     grading_prompt: str = ""
-    clean_solution: str = ""
 
 
 class DatasetRecord(BaseModel):

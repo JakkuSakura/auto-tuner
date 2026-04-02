@@ -79,12 +79,14 @@ def render_grades(console: Console, grades: list[GradeResult]) -> None:
     table = Table(show_header=True, header_style="bold")
     table.add_column("#", justify="right")
     table.add_column("Passed")
+    table.add_column("Score", justify="right")
     table.add_column("Severity")
     table.add_column("Violations")
     for index, grade in enumerate(grades, start=1):
         table.add_row(
             str(index),
             "yes" if grade.passed else "no",
+            str(grade.score),
             grade.severity,
             ", ".join(grade.violations) if grade.violations else "-",
         )
