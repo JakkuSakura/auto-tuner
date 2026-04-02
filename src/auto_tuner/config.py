@@ -55,7 +55,7 @@ class GradingConfig(BaseModel):
 
 
 class TrainingConfig(BaseModel):
-    backend: str = "fake"
+    backend: str = "auto"
     model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
     max_seq_length: int = 2048
     load_in_4bit: bool = True
