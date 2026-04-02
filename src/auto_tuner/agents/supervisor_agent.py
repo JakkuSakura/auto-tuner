@@ -9,7 +9,11 @@ from typing import Protocol
 import httpx
 
 from auto_tuner.config import OpenRouterConfig
-from auto_tuner.llm.openrouter import PromptBundle, build_prompt_provider
+from auto_tuner.llm.openrouter import (
+    PromptBundle,
+    build_prompt_provider,
+    openrouter_chat_completion,
+)
 from auto_tuner.models.dataset import GradeResult
 
 
@@ -33,9 +37,19 @@ class SupervisorAgent(Protocol):
         theme_hint: str,
     ) -> GeneratedTaskExample: ...
 
+    def generate_naive_solution(
+        self,
+        *,
+        workspace_dir: Path,
+        task_markdown: str,
+        example_id: int,
+        theme_hint: str,
+    ) -> str: ...
+
     def grade_example(
         self,
         *,
+        workspace_dir: Path | None = None,
         meta_prompt: str,
         grading_prompt: str,
         task: str,
@@ -47,6 +61,19 @@ class OpenRouterSupervisorAgent:
     def __init__(self, config: OpenRouterConfig) -> None:
         self._config = config
         self._prompt_provider = build_prompt_provider(config)
+
+    @staticmethod
+    def _system_messages() -> list[dict[str, str]]:
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Output only the final answer. "
+                    "Do not output analysis or reasoning. "
+                    "Do not include any extra commentary."
+                ),
+            }
+        ]
 
     def build_prompts(self, meta_prompt: str) -> PromptBundle:
         return self._prompt_provider.build_prompts(meta_prompt)
@@ -62,7 +89,8 @@ class OpenRouterSupervisorAgent:
     ) -> GeneratedTaskExample:
         if not self._config.api_key:
             raise RuntimeError(
-                "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
+                "OpenRouter API key is required. "
+                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
             )
 
         workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -74,10 +102,20 @@ class OpenRouterSupervisorAgent:
             theme_hint=theme_hint,
         )
 
+        (workspace_dir / "task_generation_prompt.md").write_text(prompt)
+
         try:
-            response = _openrouter_complete_markdown(self._config, prompt)
-        except httpx.HTTPError as exc:
+            response = openrouter_chat_completion(
+                self._config,
+                model=self._config.prompt_model,
+                max_tokens=1536,
+                messages=[*self._system_messages(), {"role": "user", "content": prompt}],
+            )
+        except Exception as exc:  # noqa: BLE001 - boundary error record
+            (workspace_dir / "task_generation_error.md").write_text(str(exc))
             raise RuntimeError(f"OpenRouter request failed during generation: {exc}") from exc
+
+        (workspace_dir / "task_generation_output.md").write_text(response)
 
         task = _extract_task_markdown(response)
 
@@ -90,9 +128,57 @@ class OpenRouterSupervisorAgent:
             task_path=task_path,
         )
 
+    def generate_naive_solution(
+        self,
+        *,
+        workspace_dir: Path,
+        task_markdown: str,
+        example_id: int,
+        theme_hint: str,
+    ) -> str:
+        if not self._config.api_key:
+            raise RuntimeError(
+                "OpenRouter API key is required. "
+                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
+            )
+
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        prompt = _build_naive_solution_request(
+            task_markdown=task_markdown,
+            example_id=example_id,
+            theme_hint=theme_hint,
+        )
+        (workspace_dir / "naive_generation_prompt.md").write_text(prompt)
+        try:
+            response = openrouter_chat_completion(
+                self._config,
+                model=self._config.prompt_model,
+                max_tokens=2048,
+                messages=[*self._system_messages(), {"role": "user", "content": prompt}],
+            )
+        except Exception as exc:  # noqa: BLE001 - boundary error record
+            (workspace_dir / "naive_generation_error.md").write_text(str(exc))
+            raise RuntimeError(f"OpenRouter request failed during naive generation: {exc}") from exc
+
+        (workspace_dir / "naive_generation_output.md").write_text(response)
+
+        naive_solution = _extract_python_from_markdown(response)
+        if naive_solution is None:
+            raise RuntimeError(
+                "Naive generation response did not contain a fenced ```python code block. "
+                f"See: {workspace_dir / 'naive_generation_output.md'}"
+            )
+        if naive_solution.strip() in {"...", "# ..."}:
+            raise RuntimeError(
+                "Naive generation returned a placeholder ('...') instead of a real file. "
+                f"See: {workspace_dir / 'naive_generation_output.md'}"
+            )
+        return naive_solution
+
     def grade_example(
         self,
         *,
+        workspace_dir: Path | None = None,
         meta_prompt: str,
         grading_prompt: str,
         task: str,
@@ -100,7 +186,8 @@ class OpenRouterSupervisorAgent:
     ) -> GradeResult:
         if not self._config.api_key:
             raise RuntimeError(
-                "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
+                "OpenRouter API key is required. "
+                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
             )
 
         prompt = _build_grading_request(
@@ -109,14 +196,27 @@ class OpenRouterSupervisorAgent:
             task=task,
             naive_solution=naive_solution,
         )
+        if workspace_dir is not None:
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+            (workspace_dir / "grading_prompt.md").write_text(prompt)
         try:
-            response = _openrouter_complete_markdown(self._config, prompt)
-        except httpx.HTTPError as exc:
+            response = openrouter_chat_completion(
+                self._config,
+                model=self._config.grading_model,
+                max_tokens=2048,
+                messages=[*self._system_messages(), {"role": "user", "content": prompt}],
+            )
+        except Exception as exc:  # noqa: BLE001 - boundary error record
+            if workspace_dir is not None:
+                (workspace_dir / "grading_error.md").write_text(str(exc))
             raise RuntimeError(f"OpenRouter request failed during grading: {exc}") from exc
 
+        if workspace_dir is not None:
+            (workspace_dir / "grading_output.md").write_text(response)
+
         grade_payload = _extract_json_from_markdown(response)
-        refined_solution = _extract_python_from_markdown(response)
-        if refined_solution is None:
+        clean_solution = _extract_python_from_markdown(response)
+        if clean_solution is None:
             raise ValueError("Grading response did not contain a fenced ```python code block.")
 
         return GradeResult(
@@ -125,7 +225,7 @@ class OpenRouterSupervisorAgent:
             severity=str(grade_payload.get("severity", "none")),
             suggestion=str(grade_payload.get("suggestion", "")),
             grading_prompt=grading_prompt,
-            refined_solution=refined_solution,
+            clean_solution=clean_solution,
         )
 
 
@@ -167,23 +267,38 @@ def _build_generation_request(
         ]
     )
 
-def _openrouter_complete_markdown(config: OpenRouterConfig, prompt: str) -> str:
-    with httpx.Client(base_url=config.base_url, timeout=60.0) as client:
-        response = client.post(
-            "/chat/completions",
-            headers={
-                "Authorization": f"Bearer {config.api_key}",
-                "HTTP-Referer": config.http_referer,
-                "X-Title": config.app_name,
-            },
-            json={
-                "model": config.prompt_model,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        return payload["choices"][0]["message"]["content"]
+
+def _build_naive_solution_request(*, task_markdown: str, example_id: int, theme_hint: str) -> str:
+    return "\n".join(
+        [
+            "# auto-tuner naive solution request",
+            "",
+            f"- example_id: `{example_id}`",
+            f"- theme_hint: `{theme_hint}`",
+            "",
+            "Write a *naive* baseline implementation for the task below.",
+            "",
+            "Rules (strict):",
+            "- The naive solution should intentionally use at least one reflection/introspection pattern",
+            "  (e.g. getattr / hasattr / __dict__ / vars) in a central part of the logic.",
+            "- Keep the code small and realistic; avoid boilerplate and repeated dunder-method spam.",
+            "- No placeholders like '...'.",
+            "",
+            "## Task",
+            "",
+            task_markdown.strip(),
+            "",
+            "## Output format (strict)",
+            "",
+            "Return Markdown with exactly 1 fenced code block:",
+            "",
+            "```python",
+            "# naive_solution.py",
+            "...",
+            "```",
+            "",
+        ]
+    )
 
 _TASK_BLOCK = re.compile(r"###\s+task\.md\s*\n```markdown\s*\n(?P<body>.*?)\n```", re.DOTALL)
 
@@ -191,7 +306,9 @@ _TASK_BLOCK = re.compile(r"###\s+task\.md\s*\n```markdown\s*\n(?P<body>.*?)\n```
 def _extract_task_markdown(markdown_text: str) -> str:
     match = _TASK_BLOCK.search(markdown_text)
     if not match:
-        raise ValueError("Generation response did not contain a ### task.md fenced ```markdown block.")
+        raise ValueError(
+            "Generation response did not contain a ### task.md fenced ```markdown block."
+        )
     body = match["body"].strip()
     if not body:
         raise ValueError("Generation response task.md block was empty.")
@@ -236,10 +353,10 @@ def _build_grading_request(
             "```",
             "",
             "```python",
-            "# full refined_solution.py file",
+            "# full clean_solution.py file",
             "```",
             "",
-            "Constraints for refined_solution.py:",
+            "Constraints for clean_solution.py:",
             "- Must satisfy the meta prompt goal.",
             "- Must preserve task intent and external behavior.",
             "- Must avoid reflection/introspection and dynamic dispatch tricks.",

@@ -43,9 +43,18 @@ def install_openrouter_stub(monkeypatch) -> None:
         messages = payload.get("messages") or []
         prompt = ""
         if messages and isinstance(messages, list):
-            first = messages[0]
-            if isinstance(first, dict):
-                prompt = str(first.get("content", ""))
+            user_message = None
+            for message in messages:
+                if not isinstance(message, dict):
+                    continue
+                if message.get("role") == "user":
+                    user_message = message
+                    break
+            if user_message is None and messages:
+                candidate = messages[0]
+                user_message = candidate if isinstance(candidate, dict) else None
+            if user_message is not None:
+                prompt = str(user_message.get("content", ""))
 
         if "You design dataset-generation prompts" in prompt:
             content = "Write a concrete Python refactoring task prompt."
@@ -53,6 +62,16 @@ def install_openrouter_stub(monkeypatch) -> None:
             content = "Grade the answer against the goal; fail on dynamic access."
         elif "# auto-tuner example generation request" in prompt:
             content = _agent_response_markdown()
+        elif "# auto-tuner naive solution request" in prompt:
+            content = "\n".join(
+                [
+                    "```python",
+                    "def read_value(obj, key):",
+                    "    return getattr(obj, key)",
+                    "```",
+                    "",
+                ]
+            )
         elif "# auto-tuner grading request" in prompt:
             content = "\n".join(
                 [
