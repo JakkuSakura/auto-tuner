@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,23 +10,20 @@ import httpx
 
 from auto_tuner.config import OpenRouterConfig
 from auto_tuner.llm.openrouter import PromptBundle, build_prompt_provider
+from auto_tuner.models.dataset import GradeResult
 
 
 @dataclass(frozen=True)
-class GeneratedCleanWorkspaceExample:
+class GeneratedTaskExample:
     task: str
-    clean_solution: str
     generation_prompt: str
     task_path: Path
-    clean_solution_path: Path
-    agent_request_path: Path
-    agent_response_path: Path
 
 
 class SupervisorAgent(Protocol):
     def build_prompts(self, meta_prompt: str) -> PromptBundle: ...
 
-    def generate_clean_example(
+    def generate_task_example(
         self,
         *,
         workspace_dir: Path,
@@ -33,19 +31,16 @@ class SupervisorAgent(Protocol):
         generation_prompt: str,
         example_id: int,
         theme_hint: str,
-    ) -> GeneratedCleanWorkspaceExample: ...
+    ) -> GeneratedTaskExample: ...
 
-    def write_refined_solution_after_training(
+    def grade_example(
         self,
         *,
-        workspace_dir: Path,
-        task_path: Path,
-        clean_solution_path: Path,
         meta_prompt: str,
-        training_status: str,
-        backend: str,
-        output_dir: str,
-    ) -> Path | None: ...
+        grading_prompt: str,
+        task: str,
+        naive_solution: str,
+    ) -> GradeResult: ...
 
 
 class OpenRouterSupervisorAgent:
@@ -56,7 +51,7 @@ class OpenRouterSupervisorAgent:
     def build_prompts(self, meta_prompt: str) -> PromptBundle:
         return self._prompt_provider.build_prompts(meta_prompt)
 
-    def generate_clean_example(
+    def generate_task_example(
         self,
         *,
         workspace_dir: Path,
@@ -64,7 +59,7 @@ class OpenRouterSupervisorAgent:
         generation_prompt: str,
         example_id: int,
         theme_hint: str,
-    ) -> GeneratedCleanWorkspaceExample:
+    ) -> GeneratedTaskExample:
         if not self._config.api_key:
             raise RuntimeError(
                 "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
@@ -72,102 +67,66 @@ class OpenRouterSupervisorAgent:
 
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        agent_request_path = workspace_dir / "agent_request.md"
-        agent_response_path = workspace_dir / "agent_response.md"
-
         prompt = _build_generation_request(
             meta_prompt=meta_prompt,
             generation_prompt=generation_prompt,
             example_id=example_id,
             theme_hint=theme_hint,
         )
-        agent_request_path.write_text(prompt)
 
         try:
             response = _openrouter_complete_markdown(self._config, prompt)
         except httpx.HTTPError as exc:
             raise RuntimeError(f"OpenRouter request failed during generation: {exc}") from exc
 
-        agent_response_path.write_text(response)
-
-        extracted = _extract_files_from_agent_markdown(response)
-        task = extracted["task.md"]
-        clean_solution = extracted["clean_solution.py"]
+        task = _extract_task_markdown(response)
 
         task_path = workspace_dir / "task.md"
-        clean_solution_path = workspace_dir / "clean_solution.py"
         task_path.write_text(task)
-        clean_solution_path.write_text(clean_solution)
 
-        return GeneratedCleanWorkspaceExample(
+        return GeneratedTaskExample(
             task=task,
-            clean_solution=clean_solution,
             generation_prompt=generation_prompt,
             task_path=task_path,
-            clean_solution_path=clean_solution_path,
-            agent_request_path=agent_request_path,
-            agent_response_path=agent_response_path,
         )
 
-    def write_refined_solution_after_training(
+    def grade_example(
         self,
         *,
-        workspace_dir: Path,
-        task_path: Path,
-        clean_solution_path: Path,
         meta_prompt: str,
-        training_status: str,
-        backend: str,
-        output_dir: str,
-    ) -> Path | None:
-        if training_status != "completed":
-            return None
+        grading_prompt: str,
+        task: str,
+        naive_solution: str,
+    ) -> GradeResult:
         if not self._config.api_key:
             raise RuntimeError(
-                "OpenRouter API key is required for post-training refinement. "
-                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
+                "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
             )
 
-        refinement_request_path = workspace_dir / "refinement_request.md"
-        refinement_response_path = workspace_dir / "refinement_response.md"
-        refined_solution_path = workspace_dir / "refined_solution.py"
-
-        refinement_request = _build_refinement_request(
+        prompt = _build_grading_request(
             meta_prompt=meta_prompt,
-            task=task_path.read_text(),
-            clean_solution=clean_solution_path.read_text(),
-            backend=backend,
-            output_dir=output_dir,
+            grading_prompt=grading_prompt,
+            task=task,
+            naive_solution=naive_solution,
         )
-        refinement_request_path.write_text(refinement_request)
-
         try:
-            response = _openrouter_complete_markdown(self._config, refinement_request)
+            response = _openrouter_complete_markdown(self._config, prompt)
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"OpenRouter request failed during refinement: {exc}") from exc
-        refinement_response_path.write_text(response)
+            raise RuntimeError(f"OpenRouter request failed during grading: {exc}") from exc
 
-        refined_solution = _extract_python_from_refinement(response)
+        grade_payload = _extract_json_from_markdown(response)
+        refined_solution = _extract_python_from_markdown(response)
         if refined_solution is None:
-            raise ValueError(
-                "Refinement response did not contain a fenced ```python code block."
-            )
-        refined_solution_path.write_text(refined_solution)
+            raise ValueError("Grading response did not contain a fenced ```python code block.")
 
-        (workspace_dir / "refinement.md").write_text(
-            "\n".join(
-                [
-                    "# Post-training refinement",
-                    "",
-                    f"- backend: `{backend}`",
-                    f"- output_dir: `{output_dir}`",
-                    "",
-                    "- Records: `refinement_request.md`, `refinement_response.md`.",
-                    "",
-                ]
-            )
+        return GradeResult(
+            passed=bool(grade_payload.get("passed", False)),
+            violations=list(grade_payload.get("violations", [])),
+            severity=str(grade_payload.get("severity", "none")),
+            suggestion=str(grade_payload.get("suggestion", "")),
+            grading_prompt=grading_prompt,
+            refined_solution=refined_solution,
         )
-        return refined_solution_path
 
 
 def _build_generation_request(
@@ -194,29 +153,19 @@ def _build_generation_request(
             "",
             "## Output format (strict)",
             "",
-            "Return Markdown with exactly 2 sections and exactly 2 fenced code blocks:",
+            "Return Markdown with exactly 1 section and exactly 1 fenced code block:",
             "",
             "### task.md",
             "```markdown",
             "...",
             "```",
             "",
-            "### clean_solution.py",
-            "```python",
-            "...",
-            "```",
-            "",
             "Constraints:",
             "- The task must be meaningfully different from other examples.",
-            (
-                "- The clean solution must satisfy the meta-prompt goal and avoid dynamic "
-                "access patterns."
-            ),
             "- Keep code small but realistic (multiple functions/classes if needed).",
             "",
         ]
     )
-
 
 def _openrouter_complete_markdown(config: OpenRouterConfig, prompt: str) -> str:
     with httpx.Client(base_url=config.base_url, timeout=60.0) as client:
@@ -236,78 +185,91 @@ def _openrouter_complete_markdown(config: OpenRouterConfig, prompt: str) -> str:
         payload = response.json()
         return payload["choices"][0]["message"]["content"]
 
+_TASK_BLOCK = re.compile(r"###\s+task\.md\s*\n```markdown\s*\n(?P<body>.*?)\n```", re.DOTALL)
 
-def _build_refinement_request(
+
+def _extract_task_markdown(markdown_text: str) -> str:
+    match = _TASK_BLOCK.search(markdown_text)
+    if not match:
+        raise ValueError("Generation response did not contain a ### task.md fenced ```markdown block.")
+    body = match["body"].strip()
+    if not body:
+        raise ValueError("Generation response task.md block was empty.")
+    return body + "\n"
+
+
+def _build_grading_request(
     *,
     meta_prompt: str,
+    grading_prompt: str,
     task: str,
-    clean_solution: str,
-    backend: str,
-    output_dir: str,
+    naive_solution: str,
 ) -> str:
     return "\n".join(
         [
-            "# auto-tuner post-training refinement request",
-            "",
-            f"- backend: `{backend}`",
-            f"- output_dir: `{output_dir}`",
+            "# auto-tuner grading request",
             "",
             "## Meta prompt goal",
             "",
             meta_prompt.strip(),
             "",
+            "## Grading rubric",
+            "",
+            grading_prompt.strip(),
+            "",
             "## Task",
             "",
             task.strip(),
             "",
-            "## Current clean solution",
+            "## Naive solution",
             "",
             "```python",
-            clean_solution.rstrip(),
+            naive_solution.rstrip(),
             "```",
             "",
             "## Output format (strict)",
             "",
-            "Return a single fenced code block containing the full refined Python file:",
+            "Return Markdown with exactly 2 fenced code blocks:",
             "",
-            "```python",
-            "...",
+            "```json",
+            '{ "passed": true, "severity": "none", "violations": [], "suggestion": "" }',
             "```",
             "",
-            "Constraints:",
-            "- Preserve task intent and external behavior.",
-            "- Improve clarity, explicitness, and validation as needed.",
-            "- Do not use getattr(), hasattr(), __dict__, vars(), or dynamic dispatch tricks.",
+            "```python",
+            "# full refined_solution.py file",
+            "```",
+            "",
+            "Constraints for refined_solution.py:",
+            "- Must satisfy the meta prompt goal.",
+            "- Must preserve task intent and external behavior.",
+            "- Must avoid reflection/introspection and dynamic dispatch tricks.",
             "",
         ]
     )
 
 
-_REFINEMENT_BLOCK = re.compile(r"```python\s*\n(?P<body>.*?)\n```", re.DOTALL)
+_JSON_FENCE = re.compile(r"```json\s*\n(?P<body>.*?)\n```", re.DOTALL)
+_PYTHON_FENCE = re.compile(r"```python\s*\n(?P<body>.*?)\n```", re.DOTALL)
 
 
-def _extract_python_from_refinement(markdown_text: str) -> str | None:
-    match = _REFINEMENT_BLOCK.search(markdown_text)
+def _extract_json_from_markdown(markdown_text: str) -> dict[str, object]:
+    match = _JSON_FENCE.search(markdown_text)
+    if not match:
+        raise ValueError("Grading response did not contain a fenced ```json code block.")
+    body = match["body"].strip()
+    if not body:
+        raise ValueError("Grading response json block was empty.")
+    payload = json.loads(body)
+    if not isinstance(payload, dict):
+        raise ValueError("Grading response json block must be an object.")
+    return payload
+
+
+def _extract_python_from_markdown(markdown_text: str) -> str | None:
+    match = _PYTHON_FENCE.search(markdown_text)
     if not match:
         return None
     body = match["body"].strip()
     if not body:
         return None
     return body + "\n"
-
-
-def _extract_files_from_agent_markdown(markdown_text: str) -> dict[str, str]:
-    pattern = re.compile(
-        r"###\s+(?P<name>task\.md|clean_solution\.py)\s*\n"
-        r"```(?P<lang>markdown|python)\s*\n(?P<body>.*?)\n```",
-        re.DOTALL,
-    )
-    matches = {
-        match["name"]: match["body"].strip() + "\n"
-        for match in pattern.finditer(markdown_text)
-    }
-    expected = {"task.md", "clean_solution.py"}
-    missing = expected - set(matches)
-    if missing:
-        raise ValueError(f"Agent response missing sections: {sorted(missing)}")
-    return matches

@@ -35,8 +35,3 @@ def test_generate_examples_materializes_workspace_files(tmp_path: Path, monkeypa
     assert examples[0].task
     assert (tmp_path / "workspaces" / "example_0001" / "task.md").exists()
     assert (tmp_path / "workspaces" / "example_0001" / "naive_solution.py").exists()
-    assert (tmp_path / "workspaces" / "example_0001" / "clean_solution.py").exists()
-    assert (tmp_path / "workspaces" / "example_0001" / "agent_request.md").exists()
-    assert (tmp_path / "workspaces" / "example_0001" / "agent_response.md").exists()
-    assert (tmp_path / "workspaces" / "example_0001" / "worker_request.md").exists()
-    assert (tmp_path / "workspaces" / "example_0001" / "worker_response.md").exists()

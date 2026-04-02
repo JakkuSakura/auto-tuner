@@ -20,8 +20,7 @@ class WorkerAgent(Protocol):
     def generate_naive_solution(
         self,
         *,
-        task_markdown: str,
-        clean_solution: str,
+        task_path: Path,
         example_id: int,
         theme_hint: str,
         max_new_tokens: int = 512,
@@ -55,17 +54,16 @@ class TrainingWorkerAgent:
     def generate_naive_solution(
         self,
         *,
-        task_markdown: str,
-        clean_solution: str,
+        task_path: Path,
         example_id: int,
         theme_hint: str,
         max_new_tokens: int = 512,
     ) -> str:
+        task_markdown = task_path.read_text()
         backend_name = self._backend.name
         if backend_name == "fake":
             return _fake_naive_solution(
                 task_markdown=task_markdown,
-                clean_solution=clean_solution,
                 example_id=example_id,
                 theme_hint=theme_hint,
             )
@@ -73,14 +71,12 @@ class TrainingWorkerAgent:
             return _unsloth_naive_solution(
                 model_name=self.model_name,
                 task_markdown=task_markdown,
-                clean_solution=clean_solution,
                 max_new_tokens=max_new_tokens,
             )
         if backend_name == "mlx_tune":
             return _mlx_tune_naive_solution(
                 model_name=self.model_name,
                 task_markdown=task_markdown,
-                clean_solution=clean_solution,
                 max_new_tokens=max_new_tokens,
             )
         raise RuntimeError(f"Unsupported backend for naive generation: {backend_name}")
@@ -132,12 +128,10 @@ def _select_backend(name: str) -> TrainingBackend:
 def _fake_naive_solution(
     *,
     task_markdown: str,
-    clean_solution: str,
     example_id: int,
     theme_hint: str,
 ) -> str:
     _ = task_markdown
-    _ = clean_solution
     _ = example_id
     _ = theme_hint
     return "\n".join(
@@ -156,7 +150,6 @@ def _unsloth_naive_solution(
     *,
     model_name: str,
     task_markdown: str,
-    clean_solution: str,
     max_new_tokens: int,
 ) -> str:
     try:
@@ -178,7 +171,7 @@ def _unsloth_naive_solution(
         except Exception:
             pass
 
-        prompt = _build_naive_generation_prompt(task_markdown, clean_solution)
+        prompt = _build_naive_generation_prompt(task_markdown)
         encoded = tokenizer([prompt], return_tensors="pt")
         try:
             encoded = encoded.to("cuda")
@@ -195,7 +188,6 @@ def _mlx_tune_naive_solution(
     *,
     model_name: str,
     task_markdown: str,
-    clean_solution: str,
     max_new_tokens: int,
 ) -> str:
     try:
@@ -212,7 +204,7 @@ def _mlx_tune_naive_solution(
             max_seq_length=2048,
             load_in_4bit=True,
         )
-        prompt = _build_naive_generation_prompt(task_markdown, clean_solution)
+        prompt = _build_naive_generation_prompt(task_markdown)
 
         # mlx-tune reuses an Unsloth-like API, but inference details can vary across forks.
         # We try a minimal `generate` path first; otherwise fail loudly.
@@ -244,7 +236,7 @@ def _extract_python_file(text: str) -> str | None:
     return body + "\n"
 
 
-def _build_naive_generation_prompt(task_markdown: str, clean_solution: str) -> str:
+def _build_naive_generation_prompt(task_markdown: str) -> str:
     return "\n".join(
         [
             "You are generating a naive baseline solution to a Python refactoring task.",
@@ -252,11 +244,6 @@ def _build_naive_generation_prompt(task_markdown: str, clean_solution: str) -> s
             "",
             "Task:",
             task_markdown.strip(),
-            "",
-            "Reference clean solution (do NOT copy it verbatim):",
-            "```python",
-            clean_solution.rstrip(),
-            "```",
             "",
             "Return a single fenced code block with the full naive_solution.py file:",
             "```python",

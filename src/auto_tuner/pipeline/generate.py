@@ -41,62 +41,28 @@ def generate_examples(
 
     for example_id in range(1, config.sample_count + 1):
         workspace_dir = workspaces_root / f"example_{example_id:04d}"
-        generated_clean = supervisor.generate_clean_example(
+        theme_hint = themes[(example_id - 1) % len(themes)]
+        generated_task = supervisor.generate_task_example(
             workspace_dir=workspace_dir,
             meta_prompt=prompts.meta_prompt,
             generation_prompt=prompts.generation_prompt,
             example_id=example_id,
-            theme_hint=themes[(example_id - 1) % len(themes)],
+            theme_hint=theme_hint,
         )
 
-        worker_request_path = workspace_dir / "worker_request.md"
-        worker_response_path = workspace_dir / "worker_response.md"
         naive_solution_path = workspace_dir / "naive_solution.py"
-        worker_request = "\n".join(
-            [
-                "# auto-tuner naive baseline request",
-                "",
-                f"- example_id: `{example_id}`",
-                f"- theme_hint: `{themes[(example_id - 1) % len(themes)]}`",
-                f"- worker_backend: `{worker.resolved_backend}`",
-                "",
-                "## Task",
-                "",
-                generated_clean.task.strip(),
-                "",
-                "## Clean solution",
-                "",
-                "```python",
-                generated_clean.clean_solution.rstrip(),
-                "```",
-                "",
-            ]
-        )
-        worker_request_path.write_text(worker_request)
         naive_solution = worker.generate_naive_solution(
-            task_markdown=generated_clean.task,
-            clean_solution=generated_clean.clean_solution,
+            task_path=generated_task.task_path,
             example_id=example_id,
-            theme_hint=themes[(example_id - 1) % len(themes)],
-        )
-        worker_response_path.write_text(
-            "\n".join(
-                [
-                    "```python",
-                    naive_solution.rstrip(),
-                    "```",
-                    "",
-                ]
-            )
+            theme_hint=theme_hint,
         )
         naive_solution_path.write_text(naive_solution)
 
         examples.append(
             DatasetExample(
-                task=generated_clean.task,
+                task=generated_task.task,
                 naive_solution=naive_solution,
-                clean_solution=generated_clean.clean_solution,
-                generation_prompt=generated_clean.generation_prompt,
+                generation_prompt=generated_task.generation_prompt,
             )
         )
 
@@ -107,12 +73,7 @@ def generate_examples(
             {
                 "example_id": str(example_id),
                 "workspace_dir": rel(workspace_dir),
-                "task_path": rel(generated_clean.task_path),
-                "clean_solution_path": rel(generated_clean.clean_solution_path),
-                "agent_request_path": rel(generated_clean.agent_request_path),
-                "agent_response_path": rel(generated_clean.agent_response_path),
-                "worker_request_path": rel(worker_request_path),
-                "worker_response_path": rel(worker_response_path),
+                "task_path": rel(generated_task.task_path),
                 "naive_solution_path": rel(naive_solution_path),
             }
         )

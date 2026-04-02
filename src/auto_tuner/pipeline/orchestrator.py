@@ -142,12 +142,15 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
 
     if console is not None:
         with console.status("Grading examples..."):
-            grades = grade_examples(generated, settings.grading, prompt_bundle)
+            grades = grade_examples(generated, settings.grading, prompt_bundle, supervisor)
     else:
-        grades = grade_examples(generated, settings.grading, prompt_bundle)
+        grades = grade_examples(generated, settings.grading, prompt_bundle, supervisor)
     grade_rows: list[dict[str, object]] = []
     for example_id, grade in enumerate(grades, start=1):
         workspace_dir = run_paths.workspaces_root / f"example_{example_id:04d}"
+        refined_solution_path = workspace_dir / "refined_solution.py"
+        if grade.refined_solution:
+            refined_solution_path.write_text(grade.refined_solution)
         grade_payload = grade.model_dump()
         workspace_records[example_id - 1].update(
             _write_grade_workspace(
@@ -156,6 +159,10 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 grade=grade_payload,
             )
         )
+        if refined_solution_path.exists():
+            workspace_records[example_id - 1]["refined_solution_path"] = _relative_path(
+                run_paths.root, refined_solution_path
+            )
         grade_rows.append(
             {
                 "example_id": example_id,
@@ -178,8 +185,8 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     else:
         refined_examples = refine_examples(generated, grades)
     records = [
-        DatasetRecord(prompt=example.task, response=example.clean_solution)
-        for example in refined_examples
+        DatasetRecord(prompt=example.task, response=grades[idx].refined_solution)
+        for idx, example in enumerate(refined_examples)
     ]
     store.write_records(run_paths.refined_path, records)
     artifacts.append(ArtifactRecord("refined dataset", run_paths.refined_path))
@@ -226,41 +233,6 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     if console is not None:
         render_training_result(console, job)
 
-    for record in workspace_records:
-        workspace_dir = run_paths.root / record["workspace_dir"]
-        task_path = run_paths.root / record["task_path"]
-        clean_solution_path = run_paths.root / record["clean_solution_path"]
-        try:
-            refined_solution_path = supervisor.write_refined_solution_after_training(
-                workspace_dir=workspace_dir,
-                task_path=task_path,
-                clean_solution_path=clean_solution_path,
-                meta_prompt=prompt_bundle.meta_prompt,
-                training_status=job.status,
-                backend=job.backend,
-                output_dir=spec.output_dir,
-            )
-        except Exception as exc:
-            error_path = workspace_dir / "refinement_error.txt"
-            error_path.write_text(f"{exc}\n")
-            record["refinement_error_path"] = _relative_path(run_paths.root, error_path)
-            continue
-
-        if refined_solution_path is not None:
-            record["refined_solution_path"] = _relative_path(run_paths.root, refined_solution_path)
-            refinement_md = workspace_dir / "refinement.md"
-            if refinement_md.exists():
-                record["refinement_path"] = _relative_path(run_paths.root, refinement_md)
-            refinement_request = workspace_dir / "refinement_request.md"
-            if refinement_request.exists():
-                record["refinement_request_path"] = _relative_path(
-                    run_paths.root, refinement_request
-                )
-            refinement_response = workspace_dir / "refinement_response.md"
-            if refinement_response.exists():
-                record["refinement_response_path"] = _relative_path(
-                    run_paths.root, refinement_response
-                )
     store.write_workspace_index(run_paths.workspaces_index_path, workspace_index)
     if console is not None:
         render_examples(console, workspace_records, run_paths.root)

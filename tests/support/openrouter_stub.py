@@ -24,12 +24,6 @@ def _agent_response_markdown() -> str:
             "Refactor a small function to avoid dynamic attribute access.",
             "```",
             "",
-            "### clean_solution.py",
-            "```python",
-            "def read_value(obj):",
-            "    return obj.value",
-            "```",
-            "",
         ]
     )
 
@@ -59,9 +53,13 @@ def install_openrouter_stub(monkeypatch) -> None:
             content = "Grade the answer against the goal; fail on dynamic access."
         elif "# auto-tuner example generation request" in prompt:
             content = _agent_response_markdown()
-        elif "# auto-tuner post-training refinement request" in prompt:
+        elif "# auto-tuner grading request" in prompt:
             content = "\n".join(
                 [
+                    "```json",
+                    '{ "passed": true, "severity": "none", "violations": [], "suggestion": "" }',
+                    "```",
+                    "",
                     "```python",
                     "def read_value(obj):",
                     "    return obj.value",

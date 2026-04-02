@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 class DatasetExample(BaseModel):
     task: str
     naive_solution: str
-    clean_solution: str
     generation_prompt: str = ""
 
 
@@ -16,6 +15,7 @@ class GradeResult(BaseModel):
     severity: str = "none"
     suggestion: str = ""
     grading_prompt: str = ""
+    refined_solution: str = ""
 
 
 class DatasetRecord(BaseModel):

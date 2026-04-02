@@ -9,7 +9,6 @@ def test_refine_examples_passes_through() -> None:
         DatasetExample(
             task="task",
             naive_solution="bad",
-            clean_solution="return obj.value",
         )
     ]
     grades = [GradeResult(passed=True)]
@@ -17,4 +16,4 @@ def test_refine_examples_passes_through() -> None:
     refined = refine_examples(examples, grades)
 
     assert len(refined) == 1
-    assert refined[0].clean_solution == "return obj.value"
+    assert refined[0].naive_solution == "bad"
