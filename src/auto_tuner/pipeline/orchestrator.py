@@ -269,15 +269,22 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         workspace_dir = run_paths.root / record["workspace_dir"]
         task_path = run_paths.root / record["task_path"]
         clean_solution_path = run_paths.root / record["clean_solution_path"]
-        refined_solution_path = agent.write_refined_solution_after_training(
-            workspace_dir=workspace_dir,
-            task_path=task_path,
-            clean_solution_path=clean_solution_path,
-            meta_prompt=prompt_bundle.meta_prompt,
-            training_status=job.status,
-            backend=job.backend,
-            output_dir=spec.output_dir,
-        )
+        try:
+            refined_solution_path = agent.write_refined_solution_after_training(
+                workspace_dir=workspace_dir,
+                task_path=task_path,
+                clean_solution_path=clean_solution_path,
+                meta_prompt=prompt_bundle.meta_prompt,
+                training_status=job.status,
+                backend=job.backend,
+                output_dir=spec.output_dir,
+            )
+        except Exception as exc:
+            error_path = workspace_dir / "refinement_error.txt"
+            error_path.write_text(f"{exc}\n")
+            record["refinement_error_path"] = _relative_path(run_paths.root, error_path)
+            continue
+
         if refined_solution_path is not None:
             record["refined_solution_path"] = _relative_path(run_paths.root, refined_solution_path)
             refinement_md = workspace_dir / "refinement.md"

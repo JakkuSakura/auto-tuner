@@ -138,11 +138,11 @@ class WorkspaceAgent:
             raise RuntimeError(f"OpenRouter request failed during refinement: {exc}") from exc
         refinement_response_path.write_text(response)
 
-        refined_solution: str | None = None
-        if response.strip():
-            refined_solution = _extract_python_from_refinement(response)
+        refined_solution = _extract_python_from_refinement(response)
         if refined_solution is None:
-            refined_solution = clean_solution_path.read_text()
+            raise ValueError(
+                "Refinement response did not contain a fenced ```python code block."
+            )
         refined_solution_path.write_text(refined_solution)
 
         (workspace_dir / "refinement.md").write_text(
@@ -159,8 +159,8 @@ class WorkspaceAgent:
                     ),
                     "- Records: `refinement_request.md`, `refinement_response.md`.",
                     (
-                        "- If the LLM call fails or is unavailable, it falls back to "
-                        "`clean_solution.py`."
+                        "- If refinement fails, `refined_solution.py` is not produced; "
+                        "see `refinement_error.txt`."
                     ),
                     "",
                 ]
