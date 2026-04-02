@@ -15,17 +15,22 @@ app = typer.Typer(no_args_is_help=True)
 
 def _read_config_text(config_path: str | None) -> str:
     candidate = Path(config_path or "examples/sample_experiment.yaml")
+    if config_path and not candidate.exists():
+        raise typer.BadParameter(f"Config file not found: {candidate}")
     return candidate.read_text() if candidate.exists() else ""
 
 
 @app.command()
 def run(config: str = typer.Option(None, help="Path to experiment config.")) -> None:
-    settings = load_settings(config)
     console = Console()
-    pipeline_run = run_pipeline(settings, _read_config_text(config), console=console)
+    config_text = _read_config_text(config)
+    settings = load_settings(config)
+    pipeline_run = run_pipeline(settings, config_text, console=console)
     typer.echo(f"run_id={pipeline_run.run_id}")
     typer.echo(f"status={pipeline_run.status}")
     typer.echo(f"artifacts={pipeline_run.paths.root}")
+    if pipeline_run.status != "completed":
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -43,6 +48,7 @@ def report(run_dir: str = typer.Argument(..., help="Path to a run directory.")) 
 
 @app.command("list-runs")
 def list_runs(config: str = typer.Option(None, help="Path to experiment config.")) -> None:
+    _read_config_text(config)
     settings = load_settings(config)
     runs = RunRepository(settings.app.artifacts_dir).list_runs()
     for run in runs:

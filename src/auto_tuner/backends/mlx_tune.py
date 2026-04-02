@@ -12,12 +12,20 @@ class MlxTuneTrainingBackend:
     def validate(self) -> None:
         if platform.system() != "Darwin":
             return None
+        return None
+
+    @staticmethod
+    def _dependency_missing_reason() -> str | None:
+        if platform.system() != "Darwin":
+            return None
         try:
             import mlx_tune  # noqa: F401
-        except ImportError as exc:  # pragma: no cover
-            raise RuntimeError(
-                "MLX-Tune backend requires the optional 'mlx_tune' dependency group."
-            ) from exc
+        except ImportError:
+            return (
+                "MLX-Tune backend requires the optional 'mlx_tune' dependency group. "
+                "Install with: uv sync --extra mlx_tune"
+            )
+        return None
 
     def train(self, dataset_path: Path, spec: TrainingSpec) -> TrainingJob:
         if platform.system() != "Darwin":
@@ -30,6 +38,17 @@ class MlxTuneTrainingBackend:
                 summary=summary,
                 artifacts={"dataset_path": str(dataset_path), "output_dir": spec.output_dir},
                 warnings=[summary],
+            )
+
+        if missing := self._dependency_missing_reason():
+            return TrainingJob(
+                job_id=f"mlx-tune-{dataset_path.stem}",
+                status="unsupported",
+                backend=self.name,
+                mode="guarded",
+                summary=missing,
+                artifacts={"dataset_path": str(dataset_path), "output_dir": spec.output_dir},
+                warnings=[missing],
             )
 
         try:  # pragma: no cover - requires live compatible environment

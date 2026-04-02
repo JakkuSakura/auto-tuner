@@ -34,6 +34,8 @@ def health() -> dict[str, str]:
 
 @app.post("/api/runs")
 def create_run(config_path: str | None = None) -> dict[str, str]:
+    if config_path and not Path(config_path).exists():
+        raise HTTPException(status_code=400, detail="Config file not found")
     settings = load_settings(config_path)
     config_text = (
         Path(config_path).read_text()

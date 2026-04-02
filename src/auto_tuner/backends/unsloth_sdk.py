@@ -15,28 +15,36 @@ class UnslothTrainingBackend:
         unsupported = self._unsupported_reason()
         if unsupported:
             return None
+        return None
+
+    @staticmethod
+    def _dependency_missing_reason() -> str | None:
+        unsupported = UnslothTrainingBackend._unsupported_reason()
+        if unsupported:
+            return unsupported
         try:
+            import datasets  # noqa: F401
+            import trl  # noqa: F401
             import unsloth  # noqa: F401
-        except ImportError as exc:  # pragma: no cover
-            raise RuntimeError(
-                "Unsloth backend requires the optional 'unsloth' dependency group."
-            ) from exc
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError(
-                "Unsloth dependency is present but failed to initialize in this environment."
-            ) from exc
+        except ImportError:
+            return (
+                "Unsloth backend requires the optional 'unsloth' dependency group. "
+                "Install with: uv sync --extra unsloth"
+            )
+        except Exception as exc:
+            return f"Unsloth dependency is present but failed to initialize: {exc}"
+        return None
 
     def train(self, dataset_path: Path, spec: TrainingSpec) -> TrainingJob:
-        unsupported = self._unsupported_reason()
-        if unsupported:
+        if missing := self._dependency_missing_reason():
             return TrainingJob(
                 job_id=f"unsloth-{dataset_path.stem}",
                 status="unsupported",
                 backend=self.name,
                 mode="guarded",
-                summary=unsupported,
+                summary=missing,
                 artifacts={"dataset_path": str(dataset_path), "output_dir": spec.output_dir},
-                warnings=[unsupported],
+                warnings=[missing],
             )
 
         try:  # pragma: no cover - requires live compatible environment
