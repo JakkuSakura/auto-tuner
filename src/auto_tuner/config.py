@@ -28,8 +28,8 @@ class AppConfig(BaseModel):
 class OpenRouterConfig(BaseModel):
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = ""
-    prompt_model: str = "openai/gpt-4o-mini"
-    grading_model: str = "openai/gpt-4o-mini"
+    prompt_model: str = "z-ai/glm-5"
+    grading_model: str = "z-ai/glm-5"
     http_referer: str = "http://localhost"
     app_name: str = "auto-tuner"
 

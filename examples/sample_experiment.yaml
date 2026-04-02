@@ -4,8 +4,8 @@ app:
 
 openrouter:
   base_url: "https://openrouter.ai/api/v1"
-  prompt_model: "openai/gpt-4o-mini"
-  grading_model: "openai/gpt-4o-mini"
+  prompt_model: "z-ai/glm-5"
+  grading_model: "z-ai/glm-5"
   http_referer: "http://localhost"
   app_name: "auto-tuner"
 
