@@ -8,6 +8,11 @@ from fastapi.testclient import TestClient
 from auto_tuner.web.app import app
 
 
+@pytest.fixture(autouse=True)
+def _isolate_openrouter_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 @pytest.fixture()
 def sample_config_path() -> Path:
     return Path("tests/fixtures/sample_experiment.toml")

@@ -48,18 +48,17 @@ class WorkspaceAgent:
         )
         agent_request_path.write_text(prompt)
 
-        response: str
         if self.config.api_key:
             try:
                 response = _openrouter_complete_markdown(self.config, prompt)
             except httpx.HTTPError:
-                response = _fallback_agent_response(
+                response = _offline_generation_response(
                     generation_prompt=generation_prompt,
                     example_id=example_id,
                     theme_hint=theme_hint,
                 )
         else:
-            response = _fallback_agent_response(
+            response = _offline_generation_response(
                 generation_prompt=generation_prompt,
                 example_id=example_id,
                 theme_hint=theme_hint,
@@ -103,6 +102,23 @@ class WorkspaceAgent:
     ) -> Path | None:
         if training_status != "completed":
             return None
+        if not self.config.api_key:
+            refined_solution_path = workspace_dir / "refined_solution.py"
+            refined_solution_path.write_text(clean_solution_path.read_text())
+            (workspace_dir / "refinement.md").write_text(
+                "\n".join(
+                    [
+                        "# Post-training refinement",
+                        "",
+                        f"- backend: `{backend}`",
+                        f"- output_dir: `{output_dir}`",
+                        "",
+                        "Offline mode: refinement skipped because OpenRouter is unavailable.",
+                        "",
+                    ]
+                )
+            )
+            return refined_solution_path
 
         refinement_request_path = workspace_dir / "refinement_request.md"
         refinement_response_path = workspace_dir / "refinement_response.md"
@@ -116,14 +132,10 @@ class WorkspaceAgent:
         )
         refinement_request_path.write_text(refinement_request)
 
-        response: str
-        if self.config.api_key:
-            try:
-                response = _openrouter_complete_markdown(self.config, refinement_request)
-            except httpx.HTTPError:
-                response = ""
-        else:
-            response = ""
+        try:
+            response = _openrouter_complete_markdown(self.config, refinement_request)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"OpenRouter request failed during refinement: {exc}") from exc
         refinement_response_path.write_text(response)
 
         refined_solution: str | None = None
@@ -230,6 +242,63 @@ def _openrouter_complete_markdown(config: OpenRouterConfig, prompt: str) -> str:
         return payload["choices"][0]["message"]["content"]
 
 
+def _offline_generation_response(*, generation_prompt: str, example_id: int, theme_hint: str) -> str:
+    task = "\n".join(
+        [
+            generation_prompt.strip(),
+            "",
+            f"# Refactor task ({theme_hint})",
+            "",
+            "You are given Python code that reads fields using dynamic lookup.",
+            "Refactor it to use direct, explicit attribute access and straightforward mapping access.",
+            "",
+            "Constraints:",
+            "- Do not use getattr(, hasattr(, .__dict__, or vars( in the clean solution.",
+            "- Keep the public behavior the same for valid inputs.",
+            "",
+        ]
+    )
+    naive = "\n".join(
+        [
+            "from __future__ import annotations",
+            "",
+            "def read_value(obj):",
+            "    # naive: dynamic lookup",
+            "    return getattr(obj, 'value')",
+            "",
+        ]
+    )
+    clean = "\n".join(
+        [
+            "from __future__ import annotations",
+            "",
+            "def read_value(obj):",
+            "    return obj.value",
+            "",
+        ]
+    )
+    return "\n".join(
+        [
+            f"### task.md",
+            "```markdown",
+            task,
+            "```",
+            "",
+            "### naive_solution.py",
+            "```python",
+            naive,
+            "```",
+            "",
+            "### clean_solution.py",
+            "```python",
+            clean,
+            "```",
+            "",
+            f"<!-- offline example_id={example_id} -->",
+        ]
+    )
+
+
 def _build_refinement_request(
     *,
     meta_prompt: str,
@@ -304,191 +373,3 @@ def _extract_files_from_agent_markdown(markdown_text: str) -> dict[str, str]:
     if missing:
         raise ValueError(f"Agent response missing sections: {sorted(missing)}")
     return matches
-
-
-def _fallback_agent_response(*, generation_prompt: str, example_id: int, theme_hint: str) -> str:
-    examples = _fallback_templates(generation_prompt)
-    template = examples[(example_id - 1) % len(examples)]
-    return "\n".join(
-        [
-            "### task.md",
-            "```markdown",
-            template.task.strip(),
-            "```",
-            "",
-            "### naive_solution.py",
-            "```python",
-            template.naive_solution.strip(),
-            "```",
-            "",
-            "### clean_solution.py",
-            "```python",
-            template.clean_solution.strip(),
-            "```",
-            "",
-        ]
-    )
-
-
-@dataclass(frozen=True)
-class _TemplateExample:
-    task: str
-    naive_solution: str
-    clean_solution: str
-
-
-def _fallback_templates(generation_prompt: str) -> list[_TemplateExample]:
-    return [
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Refactor a tiny settings accessor to avoid dynamic attribute access."
-            ),
-            naive_solution=(
-                "def get_setting(settings, name):\n"
-                "    return getattr(settings, name)\n"
-            ),
-            clean_solution=(
-                "def get_setting(settings, name):\n"
-                "    mapping = {\n"
-                "        'host': settings.host,\n"
-                "        'port': settings.port,\n"
-                "    }\n"
-                "    return mapping[name]\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Replace getattr-based field selection in a serializer with explicit mapping."
-            ),
-            naive_solution=(
-                "def serialize(user, field):\n"
-                "    return {field: getattr(user, field)}\n"
-            ),
-            clean_solution=(
-                "def serialize(user, field):\n"
-                "    values = {\n"
-                "        'id': user.id,\n"
-                "        'email': user.email,\n"
-                "    }\n"
-                "    return {field: values[field]}\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Refactor a CLI flag reader to avoid reflection-style access and to "
-                "validate inputs explicitly."
-            ),
-            naive_solution=(
-                "def read_flag(args, name):\n"
-                "    return getattr(args, name)\n"
-            ),
-            clean_solution=(
-                "def read_flag(args, name):\n"
-                "    flags = {\n"
-                "        'dry_run': args.dry_run,\n"
-                "        'verbose': args.verbose,\n"
-                "    }\n"
-                "    try:\n"
-                "        return flags[name]\n"
-                "    except KeyError as exc:\n"
-                "        raise ValueError(f\"unknown flag: {name}\") from exc\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Replace getattr-driven JSON export in a dataclass-like model with "
-                "explicit field selection."
-            ),
-            naive_solution=(
-                "def to_json(obj, field_names):\n"
-                "    return {name: getattr(obj, name) for name in field_names}\n"
-            ),
-            clean_solution=(
-                "def to_json(obj, field_names):\n"
-                "    allowed = {\n"
-                "        'id': obj.id,\n"
-                "        'name': obj.name,\n"
-                "        'created_at': obj.created_at,\n"
-                "    }\n"
-                "    out = {}\n"
-                "    for name in field_names:\n"
-                "        out[name] = allowed[name]\n"
-                "    return out\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Refactor a router that uses hasattr/getattr dispatch into an explicit "
-                "command registry."
-            ),
-            naive_solution=(
-                "def dispatch(handler, command):\n"
-                "    if hasattr(handler, command):\n"
-                "        return getattr(handler, command)()\n"
-                "    raise ValueError('unknown command')\n"
-            ),
-            clean_solution=(
-                "def dispatch(handler, command):\n"
-                "    commands = {\n"
-                "        'start': handler.start,\n"
-                "        'stop': handler.stop,\n"
-                "        'status': handler.status,\n"
-                "    }\n"
-                "    try:\n"
-                "        fn = commands[command]\n"
-                "    except KeyError as exc:\n"
-                "        raise ValueError('unknown command') from exc\n"
-                "    return fn()\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Refactor a metrics emitter to use explicit attribute access and validation."
-            ),
-            naive_solution=(
-                "def emit_metric(obj, name):\n"
-                "    value = getattr(obj, name)\n"
-                "    return f\"{name}={value}\"\n"
-            ),
-            clean_solution=(
-                "def emit_metric(obj, name):\n"
-                "    if name == 'latency_ms':\n"
-                "        value = obj.latency_ms\n"
-                "    elif name == 'status_code':\n"
-                "        value = obj.status_code\n"
-                "    else:\n"
-                "        raise ValueError(f\"unsupported metric: {name}\")\n"
-                "    return f\"{name}={value}\"\n"
-            ),
-        ),
-        _TemplateExample(
-            task=(
-                f"{generation_prompt}\n\n"
-                "Replace getattr/hasattr-driven dispatch in a handler with an explicit registry."
-            ),
-            naive_solution=(
-                "def handle(event, name):\n"
-                "    if hasattr(event, name):\n"
-                "        return getattr(event, name)()\n"
-                "    raise ValueError('unknown')\n"
-            ),
-            clean_solution=(
-                "def handle(event, name):\n"
-                "    handlers = {\n"
-                "        'created': event.created,\n"
-                "        'deleted': event.deleted,\n"
-                "    }\n"
-                "    try:\n"
-                "        handler = handlers[name]\n"
-                "    except KeyError as exc:\n"
-                "        raise ValueError('unknown') from exc\n"
-                "    return handler()\n"
-            ),
-        ),
-    ]

@@ -23,6 +23,8 @@ def test_cli_run_creates_artifacts(tmp_path: Path, monkeypatch) -> None:
     assert (run_dir / "refined.jsonl").exists()
     assert (run_dir / "training_result.json").exists()
     assert (run_dir / "prompts.json").exists()
+    assert (run_dir / "system_info.json").exists()
+    assert (run_dir / "gpu_stats.jsonl").exists()
     assert (run_dir / "workspaces" / "index.json").exists()
     assert (run_dir / "workspaces" / "example_0001" / "task.md").exists()
     assert (run_dir / "workspaces" / "example_0001" / "naive_solution.py").exists()

@@ -58,6 +58,12 @@ class UnslothTrainingBackend:
                 max_seq_length=spec.max_seq_length,
                 load_in_4bit=spec.load_in_4bit,
             )
+            base_model_name_or_path: str | None = None
+            try:
+                base_model_name_or_path = model.config.name_or_path
+            except Exception:
+                base_model_name_or_path = None
+
             model = FastLanguageModel.get_peft_model(
                 model,
                 r=spec.lora_rank,
@@ -78,6 +84,12 @@ class UnslothTrainingBackend:
                 use_rslora=False,
                 loftq_config=None,
             )
+            param_count: int | None = None
+            try:
+                param_count = sum(p.numel() for p in model.parameters())
+            except Exception:
+                param_count = None
+
             dataset = load_dataset("json", data_files=str(dataset_path), split="train")
             trainer_args = SFTConfig(
                 output_dir=spec.output_dir,
@@ -102,7 +114,11 @@ class UnslothTrainingBackend:
             result = trainer.train()
             model.save_pretrained(spec.output_dir)
             tokenizer.save_pretrained(spec.output_dir)
-            loss = getattr(result, "training_loss", None)
+            loss: float | None = None
+            try:
+                loss = result.training_loss
+            except Exception:
+                loss = None
             return TrainingJob(
                 job_id=f"unsloth-{dataset_path.stem}",
                 status="completed",
@@ -113,10 +129,15 @@ class UnslothTrainingBackend:
                     "dataset_path": str(dataset_path),
                     "output_dir": spec.output_dir,
                     "adapter_dir": spec.output_dir,
+                    "base_model_name_or_path": base_model_name_or_path or "",
                 },
                 metrics={
                     "training_loss": loss if loss is not None else "unknown",
                     "num_train_epochs": spec.num_train_epochs,
+                    "base_model_parameters": param_count if param_count is not None else "unknown",
+                    "base_model_parameters_b": (
+                        (param_count / 1_000_000_000) if param_count is not None else "unknown"
+                    ),
                 },
             )
         except Exception as exc:  # pragma: no cover - live path only

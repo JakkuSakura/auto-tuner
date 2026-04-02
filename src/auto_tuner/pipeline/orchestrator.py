@@ -27,6 +27,7 @@ from auto_tuner.pipeline.grade import grade_examples
 from auto_tuner.pipeline.refine import refine_examples
 from auto_tuner.storage.artifacts import ArtifactStore
 from auto_tuner.storage.runs import RunRepository
+from auto_tuner.telemetry import GpuMonitor, collect_system_info
 
 
 def _resolve_backend_name(name: str) -> str:
@@ -109,6 +110,11 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     else:
         store.write_config_snapshot(run_paths.config_snapshot_path, config_text)
     artifacts.append(ArtifactRecord("config snapshot", run_paths.config_snapshot_path))
+
+    system_info = collect_system_info()
+    system_info_path = run_paths.root / "system_info.json"
+    ArtifactStore.write_json(system_info_path, system_info)
+    artifacts.append(ArtifactRecord("system info", system_info_path))
 
     prompt_provider = build_prompt_provider(settings.openrouter)
     if console is not None:
@@ -229,6 +235,9 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
 
     backend = _select_backend(resolved_backend)
     dataset_path = Path(spec.dataset_path)
+    gpu_stats_path = run_paths.root / "gpu_stats.jsonl"
+    monitor = GpuMonitor(gpu_stats_path)
+    monitor.start()
     try:
         backend.validate()
         if console is not None:
@@ -238,11 +247,16 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
             job = backend.train(dataset_path, spec)
     except Exception as exc:
         backend_name = resolved_backend
-        if hasattr(backend, "name"):
+        try:
             backend_name = backend.name
+        except AttributeError:
+            pass
         job = _failed_job(backend_name, dataset_path, spec.output_dir, exc)
+    finally:
+        monitor.stop()
     store.write_training_result(run_paths.training_result_path, job)
     artifacts.append(ArtifactRecord("training result", run_paths.training_result_path))
+    artifacts.append(ArtifactRecord("gpu stats", gpu_stats_path))
     if console is not None:
         render_training_result(console, job)
 
@@ -295,6 +309,15 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         "workspaces_index": str(run_paths.workspaces_index_path),
         "artifacts": {record.label: str(record.path) for record in artifacts},
         "demo": demo,
+        "system": system_info,
+        "model": {
+            "name": spec.model_name,
+            "load_in_4bit": spec.load_in_4bit,
+            "max_seq_length": spec.max_seq_length,
+            "output_dir": spec.output_dir,
+            "dataset_path": spec.dataset_path,
+            "metrics": job.metrics,
+        },
     }
     store.write_report(run_paths.report_path, report)
     artifacts.append(ArtifactRecord("report", run_paths.report_path))
