@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from rich.progress import Progress
+
 from auto_tuner.agents.supervisor_agent import SupervisorAgent
-from auto_tuner.agents.worker_agent import WorkerAgent
 from auto_tuner.config import GenerationConfig
 from auto_tuner.llm.openrouter import PromptBundle
 from auto_tuner.models.dataset import DatasetExample
@@ -23,7 +24,8 @@ def generate_examples(
     run_root: Path,
     workspaces_root: Path,
     supervisor: SupervisorAgent,
-    worker: WorkerAgent,
+    progress: Progress | None = None,
+    progress_task_id: int | None = None,
 ) -> GeneratedExamples:
     examples: list[DatasetExample] = []
     workspace_records: list[dict[str, str]] = []
@@ -51,8 +53,9 @@ def generate_examples(
         )
 
         naive_solution_path = workspace_dir / "naive_solution.py"
-        naive_solution = worker.generate_naive_solution(
-            task_path=generated_task.task_path,
+        naive_solution = supervisor.generate_naive_solution(
+            workspace_dir=workspace_dir,
+            task_markdown=generated_task.task,
             example_id=example_id,
             theme_hint=theme_hint,
         )
@@ -77,5 +80,7 @@ def generate_examples(
                 "naive_solution_path": rel(naive_solution_path),
             }
         )
+        if progress is not None and progress_task_id is not None:
+            progress.advance(progress_task_id)
 
     return GeneratedExamples(examples=examples, workspace_records=workspace_records)

@@ -9,7 +9,7 @@ class RunPaths(BaseModel):
     root: Path
     generated_path: Path
     graded_path: Path
-    refined_path: Path
+    training_dataset_path: Path
     training_spec_path: Path
     training_result_path: Path
     report_path: Path

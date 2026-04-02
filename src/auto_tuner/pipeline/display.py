@@ -55,6 +55,7 @@ def render_examples(console: Console, examples: list[dict[str, str]], run_root: 
         file_keys = [
             ("task_path", "task"),
             ("naive_solution_path", "naive"),
+            ("clean_solution_path", "clean"),
             ("grade_path", "grade"),
             ("refined_solution_path", "refined"),
         ]
@@ -95,6 +96,7 @@ def render_training_spec(console: Console, spec: TrainingSpec) -> None:
     console.rule("Training")
     table = Table(show_header=False)
     table.add_row("Backend", spec.backend)
+    table.add_row("Method", spec.method)
     table.add_row("Model", spec.model_name)
     table.add_row("Epochs", str(spec.num_train_epochs))
     table.add_row("Batch size", str(spec.per_device_train_batch_size))

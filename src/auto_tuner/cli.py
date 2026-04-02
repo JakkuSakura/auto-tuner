@@ -15,9 +15,9 @@ app = typer.Typer(no_args_is_help=True)
 
 def _read_config_text(config_path: str | None) -> str:
     candidate = Path(config_path or "examples/sample_experiment.yaml")
-    if config_path and not candidate.exists():
+    if not candidate.exists():
         raise typer.BadParameter(f"Config file not found: {candidate}")
-    return candidate.read_text() if candidate.exists() else ""
+    return candidate.read_text()
 
 
 @app.command()
@@ -30,6 +30,10 @@ def run(config: str = typer.Option(None, help="Path to experiment config.")) -> 
         typer.echo(f"run_id={pipeline_run.run_id}")
         typer.echo(f"status={pipeline_run.status}")
         typer.echo(f"artifacts={pipeline_run.paths.root}")
+        typer.echo(f"report={pipeline_run.paths.report_path}")
+        typer.echo(f"events={pipeline_run.paths.root / 'events.jsonl'}")
+        typer.echo(f"workspaces={pipeline_run.paths.workspaces_root}")
+        typer.echo(f"workspaces_index={pipeline_run.paths.workspaces_index_path}")
         if pipeline_run.status != "completed":
             raise typer.Exit(code=1)
     except typer.Exit:

@@ -19,6 +19,7 @@ class RunRepository:
         payload = json.loads((run_root / "run.json").read_text())
         paths = payload.get("paths", {})
         root = Path(paths.get("root", run_root))
+        paths.setdefault("training_dataset_path", str(root / "training_dataset.jsonl"))
         paths.setdefault("workspaces_root", str(root / "workspaces"))
         paths.setdefault(
             "workspaces_index_path", str(root / "workspaces" / "index.json")

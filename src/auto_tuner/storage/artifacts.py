@@ -24,11 +24,11 @@ class ArtifactStore:
             root=run_root,
             generated_path=run_root / "generated.jsonl",
             graded_path=run_root / "graded.jsonl",
-            refined_path=run_root / "refined.jsonl",
+            training_dataset_path=run_root / "training_dataset.jsonl",
             training_spec_path=run_root / "training_spec.json",
             training_result_path=run_root / "training_result.json",
             report_path=run_root / "report.json",
-            config_snapshot_path=run_root / "config.snapshot.toml",
+            config_snapshot_path=run_root / "config.snapshot",
             workspaces_root=workspaces_root,
             workspaces_index_path=workspaces_root / "index.json",
         )
@@ -43,7 +43,32 @@ class ArtifactStore:
         rows = []
         for record in records:
             conversation = record.as_conversation()
-            rows.append({**conversation, "text": record.response})
+            prompt = record.prompt.strip()
+            response = record.response.strip()
+            text = "\n".join(
+                [
+                    "### Task",
+                    prompt,
+                    "",
+                    "### Solution",
+                    response,
+                    "",
+                ]
+            )
+            rows.append(
+                {
+                    **conversation,
+                    "prompt": prompt,
+                    "response": response,
+                    "text": text,
+                }
+            )
+        self.write_jsonl(path, rows)
+
+    def write_prompt_dataset(self, path: Path, prompts: list[str]) -> None:
+        rows: list[dict[str, object]] = []
+        for prompt in prompts:
+            rows.append({"prompt": prompt, "text": prompt})
         self.write_jsonl(path, rows)
 
     def write_training_spec(self, path: Path, spec: TrainingSpec) -> None:
@@ -63,6 +88,9 @@ class ArtifactStore:
 
     def write_jsonl(self, path: Path, rows: list[dict[str, object]]) -> None:
         self._write_jsonl(path, rows)
+
+    def append_jsonl(self, path: Path, row: dict[str, object]) -> None:
+        self._append_jsonl(path, row)
 
     @staticmethod
     def write_json(path: Path, payload: dict[str, object] | list[object]) -> None:
@@ -89,3 +117,8 @@ class ArtifactStore:
     @staticmethod
     def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
         path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    @staticmethod
+    def _append_jsonl(path: Path, row: dict[str, object]) -> None:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")

@@ -15,7 +15,7 @@ class GradeResult(BaseModel):
     severity: str = "none"
     suggestion: str = ""
     grading_prompt: str = ""
-    refined_solution: str = ""
+    clean_solution: str = ""
 
 
 class DatasetRecord(BaseModel):

@@ -81,7 +81,11 @@ class GpuMonitor:
             )
             f.flush()
 
-        self._thread = threading.Thread(target=self._run, name="auto-tuner-gpu-monitor", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run,
+            name="auto-tuner-gpu-monitor",
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -115,7 +119,10 @@ class GpuMonitor:
                     "timestamp": timestamp,
                     "backend": "apple",
                     "status": "unsupported",
-                    "reason": "Real-time GPU utilization is not implemented for macOS in this project yet.",
+                    "reason": (
+                        "Real-time GPU utilization is not implemented for macOS "
+                        "in this project yet."
+                    ),
                 }
             ]
 
@@ -142,4 +149,3 @@ class GpuMonitor:
                 }
             )
         return rows
-
