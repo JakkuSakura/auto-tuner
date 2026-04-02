@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import platform
 from pathlib import Path
 
-from auto_tuner.agents.workspace_agent import WorkspaceAgent
-from auto_tuner.backends.fake import FakeTrainingBackend
-from auto_tuner.backends.mlx_tune import MlxTuneTrainingBackend
-from auto_tuner.backends.unsloth_sdk import UnslothTrainingBackend
+from auto_tuner.agents.supervisor_agent import OpenRouterSupervisorAgent
+from auto_tuner.agents.worker_agent import TrainingWorkerAgent
 from auto_tuner.config import Settings
-from auto_tuner.llm.openrouter import build_prompt_provider
 from auto_tuner.models.dataset import DatasetRecord
 from auto_tuner.models.run import PipelineRun
 from auto_tuner.models.training import TrainingJob, TrainingSpec
@@ -28,23 +24,6 @@ from auto_tuner.pipeline.refine import refine_examples
 from auto_tuner.storage.artifacts import ArtifactStore
 from auto_tuner.storage.runs import RunRepository
 from auto_tuner.telemetry import GpuMonitor, collect_system_info
-
-
-def _resolve_backend_name(name: str) -> str:
-    if name != "auto":
-        return name
-    if platform.system() == "Darwin":
-        return "mlx_tune"
-    return "unsloth"
-
-
-def _select_backend(name: str):
-    resolved = _resolve_backend_name(name)
-    if resolved == "mlx_tune":
-        return MlxTuneTrainingBackend()
-    if resolved == "unsloth":
-        return UnslothTrainingBackend()
-    return FakeTrainingBackend()
 
 
 def _relative_path(root: Path, path: Path) -> str:
@@ -85,7 +64,8 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     run_paths = store.create_run_paths()
     artifacts: list[ArtifactRecord] = []
     requested_backend = settings.training.backend
-    resolved_backend = _resolve_backend_name(requested_backend)
+    worker = TrainingWorkerAgent.from_requested_backend(requested_backend)
+    resolved_backend = worker.resolved_backend
 
     if console is not None:
         render_run_header(console, run_paths, requested_backend, resolved_backend)
@@ -100,12 +80,12 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     ArtifactStore.write_json(system_info_path, system_info)
     artifacts.append(ArtifactRecord("system info", system_info_path))
 
-    prompt_provider = build_prompt_provider(settings.openrouter)
+    supervisor = OpenRouterSupervisorAgent(settings.openrouter)
     if console is not None:
         with console.status("Building prompts..."):
-            prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
+            prompt_bundle = supervisor.build_prompts(settings.generation.meta_prompt)
     else:
-        prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
+        prompt_bundle = supervisor.build_prompts(settings.generation.meta_prompt)
     prompts_payload = {
         "meta_prompt": prompt_bundle.meta_prompt,
         "generation_prompt": prompt_bundle.generation_prompt,
@@ -137,7 +117,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 prompts=prompt_bundle,
                 run_root=run_paths.root,
                 workspaces_root=run_paths.workspaces_root,
-                openrouter=settings.openrouter,
+                supervisor=supervisor,
             )
     else:
         generated_payload = generate_examples(
@@ -145,7 +125,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
             prompts=prompt_bundle,
             run_root=run_paths.root,
             workspaces_root=run_paths.workspaces_root,
-            openrouter=settings.openrouter,
+            supervisor=supervisor,
         )
     generated = generated_payload.examples
     workspace_records = generated_payload.workspace_records
@@ -217,22 +197,20 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     if console is not None:
         render_training_spec(console, spec)
 
-    backend = _select_backend(resolved_backend)
     dataset_path = Path(spec.dataset_path)
     gpu_stats_path = run_paths.root / "gpu_stats.jsonl"
     monitor = GpuMonitor(gpu_stats_path)
     monitor.start()
     try:
-        backend.validate()
         if console is not None:
             with console.status("Training..."):
-                job = backend.train(dataset_path, spec)
+                job = worker.train(dataset_path, spec)
         else:
-            job = backend.train(dataset_path, spec)
+            job = worker.train(dataset_path, spec)
     except Exception as exc:
         backend_name = resolved_backend
         try:
-            backend_name = backend.name
+            backend_name = worker.backend_name
         except AttributeError:
             pass
         job = _failed_job(backend_name, dataset_path, spec.output_dir, exc)
@@ -244,13 +222,12 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     if console is not None:
         render_training_result(console, job)
 
-    agent = WorkspaceAgent(settings.openrouter)
     for record in workspace_records:
         workspace_dir = run_paths.root / record["workspace_dir"]
         task_path = run_paths.root / record["task_path"]
         clean_solution_path = run_paths.root / record["clean_solution_path"]
         try:
-            refined_solution_path = agent.write_refined_solution_after_training(
+            refined_solution_path = supervisor.write_refined_solution_after_training(
                 workspace_dir=workspace_dir,
                 task_path=task_path,
                 clean_solution_path=clean_solution_path,
@@ -295,6 +272,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         "warnings": job.warnings,
         "requested_backend": requested_backend,
         "resolved_backend": resolved_backend,
+        "supervisor": {"type": "openrouter", "model": settings.openrouter.prompt_model},
         "workspaces_root": str(run_paths.workspaces_root),
         "workspaces_index": str(run_paths.workspaces_index_path),
         "artifacts": {record.label: str(record.path) for record in artifacts},

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from auto_tuner.config import GenerationConfig, OpenRouterConfig
+from auto_tuner.agents.supervisor_agent import OpenRouterSupervisorAgent
 from auto_tuner.llm.openrouter import PromptBundle
 from auto_tuner.pipeline.generate import generate_examples
 from tests.support.openrouter_stub import install_openrouter_stub
@@ -10,6 +11,7 @@ from tests.support.openrouter_stub import install_openrouter_stub
 
 def test_generate_examples_materializes_workspace_files(tmp_path: Path, monkeypatch) -> None:
     install_openrouter_stub(monkeypatch)
+    supervisor = OpenRouterSupervisorAgent(OpenRouterConfig(api_key="test"))
     prompts = PromptBundle(
         meta_prompt="goal",
         generation_prompt="generated prompt",
@@ -21,7 +23,7 @@ def test_generate_examples_materializes_workspace_files(tmp_path: Path, monkeypa
         prompts=prompts,
         run_root=tmp_path,
         workspaces_root=tmp_path / "workspaces",
-        openrouter=OpenRouterConfig(api_key="test"),
+        supervisor=supervisor,
     )
     examples = generated.examples
 

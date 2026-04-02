@@ -3,10 +3,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import httpx
 
 from auto_tuner.config import OpenRouterConfig
+from auto_tuner.llm.openrouter import PromptBundle, build_prompt_provider
 
 
 @dataclass(frozen=True)
@@ -22,9 +24,39 @@ class GeneratedWorkspaceExample:
     agent_response_path: Path
 
 
-class WorkspaceAgent:
+class SupervisorAgent(Protocol):
+    def build_prompts(self, meta_prompt: str) -> PromptBundle: ...
+
+    def generate_example(
+        self,
+        *,
+        workspace_dir: Path,
+        meta_prompt: str,
+        generation_prompt: str,
+        example_id: int,
+        theme_hint: str,
+    ) -> GeneratedWorkspaceExample: ...
+
+    def write_refined_solution_after_training(
+        self,
+        *,
+        workspace_dir: Path,
+        task_path: Path,
+        clean_solution_path: Path,
+        meta_prompt: str,
+        training_status: str,
+        backend: str,
+        output_dir: str,
+    ) -> Path | None: ...
+
+
+class OpenRouterSupervisorAgent:
     def __init__(self, config: OpenRouterConfig) -> None:
-        self.config = config
+        self._config = config
+        self._prompt_provider = build_prompt_provider(config)
+
+    def build_prompts(self, meta_prompt: str) -> PromptBundle:
+        return self._prompt_provider.build_prompts(meta_prompt)
 
     def generate_example(
         self,
@@ -35,6 +67,11 @@ class WorkspaceAgent:
         example_id: int,
         theme_hint: str,
     ) -> GeneratedWorkspaceExample:
+        if not self._config.api_key:
+            raise RuntimeError(
+                "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
+            )
+
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
         agent_request_path = workspace_dir / "agent_request.md"
@@ -48,21 +85,11 @@ class WorkspaceAgent:
         )
         agent_request_path.write_text(prompt)
 
-        if self.config.api_key:
-            try:
-                response = _openrouter_complete_markdown(self.config, prompt)
-            except httpx.HTTPError:
-                response = _offline_generation_response(
-                    generation_prompt=generation_prompt,
-                    example_id=example_id,
-                    theme_hint=theme_hint,
-                )
-        else:
-            response = _offline_generation_response(
-                generation_prompt=generation_prompt,
-                example_id=example_id,
-                theme_hint=theme_hint,
-            )
+        try:
+            response = _openrouter_complete_markdown(self._config, prompt)
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"OpenRouter request failed during generation: {exc}") from exc
+
         agent_response_path.write_text(response)
 
         extracted = _extract_files_from_agent_markdown(response)
@@ -102,27 +129,16 @@ class WorkspaceAgent:
     ) -> Path | None:
         if training_status != "completed":
             return None
-        if not self.config.api_key:
-            refined_solution_path = workspace_dir / "refined_solution.py"
-            refined_solution_path.write_text(clean_solution_path.read_text())
-            (workspace_dir / "refinement.md").write_text(
-                "\n".join(
-                    [
-                        "# Post-training refinement",
-                        "",
-                        f"- backend: `{backend}`",
-                        f"- output_dir: `{output_dir}`",
-                        "",
-                        "Offline mode: refinement skipped because OpenRouter is unavailable.",
-                        "",
-                    ]
-                )
+        if not self._config.api_key:
+            raise RuntimeError(
+                "OpenRouter API key is required for post-training refinement. "
+                "Set OPENROUTER_API_KEY or configure openrouter.api_key."
             )
-            return refined_solution_path
 
         refinement_request_path = workspace_dir / "refinement_request.md"
         refinement_response_path = workspace_dir / "refinement_response.md"
         refined_solution_path = workspace_dir / "refined_solution.py"
+
         refinement_request = _build_refinement_request(
             meta_prompt=meta_prompt,
             task=task_path.read_text(),
@@ -133,7 +149,7 @@ class WorkspaceAgent:
         refinement_request_path.write_text(refinement_request)
 
         try:
-            response = _openrouter_complete_markdown(self.config, refinement_request)
+            response = _openrouter_complete_markdown(self._config, refinement_request)
         except httpx.HTTPError as exc:
             raise RuntimeError(f"OpenRouter request failed during refinement: {exc}") from exc
         refinement_response_path.write_text(response)
@@ -153,15 +169,7 @@ class WorkspaceAgent:
                     f"- backend: `{backend}`",
                     f"- output_dir: `{output_dir}`",
                     "",
-                    (
-                        "This workspace currently writes `refined_solution.py` after training "
-                        "completes."
-                    ),
                     "- Records: `refinement_request.md`, `refinement_response.md`.",
-                    (
-                        "- If refinement fails, `refined_solution.py` is not produced; "
-                        "see `refinement_error.txt`."
-                    ),
                     "",
                 ]
             )
@@ -240,63 +248,6 @@ def _openrouter_complete_markdown(config: OpenRouterConfig, prompt: str) -> str:
         response.raise_for_status()
         payload = response.json()
         return payload["choices"][0]["message"]["content"]
-
-
-def _offline_generation_response(*, generation_prompt: str, example_id: int, theme_hint: str) -> str:
-    task = "\n".join(
-        [
-            generation_prompt.strip(),
-            "",
-            f"# Refactor task ({theme_hint})",
-            "",
-            "You are given Python code that reads fields using dynamic lookup.",
-            "Refactor it to use direct, explicit attribute access and straightforward mapping access.",
-            "",
-            "Constraints:",
-            "- Do not use getattr(, hasattr(, .__dict__, or vars( in the clean solution.",
-            "- Keep the public behavior the same for valid inputs.",
-            "",
-        ]
-    )
-    naive = "\n".join(
-        [
-            "from __future__ import annotations",
-            "",
-            "def read_value(obj):",
-            "    # naive: dynamic lookup",
-            "    return getattr(obj, 'value')",
-            "",
-        ]
-    )
-    clean = "\n".join(
-        [
-            "from __future__ import annotations",
-            "",
-            "def read_value(obj):",
-            "    return obj.value",
-            "",
-        ]
-    )
-    return "\n".join(
-        [
-            f"### task.md",
-            "```markdown",
-            task,
-            "```",
-            "",
-            "### naive_solution.py",
-            "```python",
-            naive,
-            "```",
-            "",
-            "### clean_solution.py",
-            "```python",
-            clean,
-            "```",
-            "",
-            f"<!-- offline example_id={example_id} -->",
-        ]
-    )
 
 
 def _build_refinement_request(
