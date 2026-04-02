@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
+from rich.console import Console
 
 from auto_tuner.config import load_settings
 from auto_tuner.pipeline.orchestrator import run_pipeline
@@ -20,7 +21,8 @@ def _read_config_text(config_path: str | None) -> str:
 @app.command()
 def run(config: str = typer.Option(None, help="Path to experiment config.")) -> None:
     settings = load_settings(config)
-    pipeline_run = run_pipeline(settings, _read_config_text(config))
+    console = Console()
+    pipeline_run = run_pipeline(settings, _read_config_text(config), console=console)
     typer.echo(f"run_id={pipeline_run.run_id}")
     typer.echo(f"status={pipeline_run.status}")
     typer.echo(f"artifacts={pipeline_run.paths.root}")

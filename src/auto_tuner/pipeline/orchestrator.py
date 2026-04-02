@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import platform
 from pathlib import Path
 
 from auto_tuner.backends.fake import FakeTrainingBackend
@@ -11,6 +11,16 @@ from auto_tuner.llm.openrouter import build_prompt_provider
 from auto_tuner.models.dataset import DatasetRecord
 from auto_tuner.models.run import PipelineRun
 from auto_tuner.models.training import TrainingJob, TrainingSpec
+from auto_tuner.pipeline.display import (
+    ArtifactRecord,
+    render_artifacts,
+    render_examples,
+    render_grades,
+    render_prompts,
+    render_run_header,
+    render_training_result,
+    render_training_spec,
+)
 from auto_tuner.pipeline.generate import generate_examples
 from auto_tuner.pipeline.grade import grade_examples
 from auto_tuner.pipeline.refine import refine_examples
@@ -18,16 +28,19 @@ from auto_tuner.storage.artifacts import ArtifactStore
 from auto_tuner.storage.runs import RunRepository
 
 
-@dataclass(frozen=True)
-class ArtifactRecord:
-    label: str
-    path: Path
+def _resolve_backend_name(name: str) -> str:
+    if name != "auto":
+        return name
+    if platform.system() == "Darwin":
+        return "mlx_tune"
+    return "unsloth"
 
 
 def _select_backend(name: str):
-    if name == "mlx_tune":
+    resolved = _resolve_backend_name(name)
+    if resolved == "mlx_tune":
         return MlxTuneTrainingBackend()
-    if name == "unsloth":
+    if resolved == "unsloth":
         return UnslothTrainingBackend()
     return FakeTrainingBackend()
 
@@ -52,7 +65,12 @@ def _build_demo(settings: Settings, prompts: dict[str, str]) -> dict[str, object
     }
 
 
-def _failed_job(backend_name: str, dataset_path: Path, output_dir: str, exc: Exception) -> TrainingJob:
+def _failed_job(
+    backend_name: str,
+    dataset_path: Path,
+    output_dir: str,
+    exc: Exception,
+) -> TrainingJob:
     return TrainingJob(
         job_id=f"{backend_name}-{dataset_path.stem}",
         status="failed",
@@ -64,16 +82,27 @@ def _failed_job(backend_name: str, dataset_path: Path, output_dir: str, exc: Exc
     )
 
 
-def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
+def run_pipeline(settings: Settings, config_text: str, console=None) -> PipelineRun:
     store = ArtifactStore(settings.app.artifacts_dir)
     run_paths = store.create_run_paths()
     artifacts: list[ArtifactRecord] = []
+    requested_backend = settings.training.backend
+    resolved_backend = _resolve_backend_name(requested_backend)
 
-    store.write_config_snapshot(run_paths.config_snapshot_path, config_text)
+    if console is not None:
+        render_run_header(console, run_paths, requested_backend, resolved_backend)
+        with console.status("Writing config snapshot..."):
+            store.write_config_snapshot(run_paths.config_snapshot_path, config_text)
+    else:
+        store.write_config_snapshot(run_paths.config_snapshot_path, config_text)
     artifacts.append(ArtifactRecord("config snapshot", run_paths.config_snapshot_path))
 
     prompt_provider = build_prompt_provider(settings.openrouter)
-    prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
+    if console is not None:
+        with console.status("Building prompts..."):
+            prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
+    else:
+        prompt_bundle = prompt_provider.build_prompts(settings.generation.meta_prompt)
     prompts_payload = {
         "meta_prompt": prompt_bundle.meta_prompt,
         "generation_prompt": prompt_bundle.generation_prompt,
@@ -83,16 +112,34 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
     prompts_path = run_paths.root / "prompts.json"
     ArtifactStore.write_json(prompts_path, prompts_payload)
     artifacts.append(ArtifactRecord("prompts", prompts_path))
+    if console is not None:
+        render_prompts(console, prompt_bundle, prompt_bundle.source)
 
-    generated = generate_examples(settings.generation, prompt_bundle)
+    if console is not None:
+        with console.status("Generating examples..."):
+            generated = generate_examples(settings.generation, prompt_bundle)
+    else:
+        generated = generate_examples(settings.generation, prompt_bundle)
     store.write_examples(run_paths.generated_path, generated)
     artifacts.append(ArtifactRecord("generated examples", run_paths.generated_path))
+    if console is not None:
+        render_examples(console, generated)
 
-    grades = grade_examples(generated, settings.grading, prompt_bundle)
+    if console is not None:
+        with console.status("Grading examples..."):
+            grades = grade_examples(generated, settings.grading, prompt_bundle)
+    else:
+        grades = grade_examples(generated, settings.grading, prompt_bundle)
     store.write_grade_results(run_paths.graded_path, grades)
     artifacts.append(ArtifactRecord("grades", run_paths.graded_path))
+    if console is not None:
+        render_grades(console, grades)
 
-    refined_examples = refine_examples(generated, grades)
+    if console is not None:
+        with console.status("Refining examples..."):
+            refined_examples = refine_examples(generated, grades)
+    else:
+        refined_examples = refine_examples(generated, grades)
     records = [
         DatasetRecord(prompt=example.task, response=example.clean_solution)
         for example in refined_examples
@@ -101,7 +148,7 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
     artifacts.append(ArtifactRecord("refined dataset", run_paths.refined_path))
 
     spec = TrainingSpec(
-        backend=settings.training.backend,
+        backend=resolved_backend,
         model_name=settings.training.model_name,
         max_seq_length=settings.training.max_seq_length,
         load_in_4bit=settings.training.load_in_4bit,
@@ -114,21 +161,27 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
     )
     store.write_training_spec(run_paths.training_spec_path, spec)
     artifacts.append(ArtifactRecord("training spec", run_paths.training_spec_path))
+    if console is not None:
+        render_training_spec(console, spec)
 
-    backend = _select_backend(settings.training.backend)
+    backend = _select_backend(resolved_backend)
     dataset_path = Path(spec.dataset_path)
     try:
         backend.validate()
-        job = backend.train(dataset_path, spec)
-    except RuntimeError as exc:
-        backend_name = settings.training.backend
-        try:
+        if console is not None:
+            with console.status("Training..."):
+                job = backend.train(dataset_path, spec)
+        else:
+            job = backend.train(dataset_path, spec)
+    except Exception as exc:
+        backend_name = resolved_backend
+        if hasattr(backend, "name"):
             backend_name = backend.name
-        except AttributeError:
-            pass
         job = _failed_job(backend_name, dataset_path, spec.output_dir, exc)
     store.write_training_result(run_paths.training_result_path, job)
     artifacts.append(ArtifactRecord("training result", run_paths.training_result_path))
+    if console is not None:
+        render_training_result(console, job)
 
     demo = _build_demo(settings, prompts_payload) if settings.demo.enabled else {}
     report = {
@@ -140,6 +193,8 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
         "training_mode": job.mode,
         "summary": job.summary,
         "warnings": job.warnings,
+        "requested_backend": requested_backend,
+        "resolved_backend": resolved_backend,
         "artifacts": {record.label: str(record.path) for record in artifacts},
         "demo": demo,
     }
@@ -149,5 +204,8 @@ def run_pipeline(settings: Settings, config_text: str) -> PipelineRun:
     pipeline_run = PipelineRun(run_id=run_paths.root.name, status=job.status, paths=run_paths)
     RunRepository().save(pipeline_run)
     artifacts.append(ArtifactRecord("run metadata", run_paths.root / "run.json"))
+
+    if console is not None:
+        render_artifacts(console, artifacts)
 
     return pipeline_run

@@ -42,7 +42,7 @@ class GradingConfig(BaseModel):
 
 
 class TrainingConfig(BaseModel):
-    backend: str = "fake"
+    backend: str = "auto"
     model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
     max_seq_length: int = 2048
     load_in_4bit: bool = True
@@ -55,7 +55,7 @@ class TrainingConfig(BaseModel):
     @field_validator("backend")
     @classmethod
     def validate_backend(cls, value: str) -> str:
-        supported = {"fake", "unsloth", "mlx_tune"}
+        supported = {"auto", "fake", "unsloth", "mlx_tune"}
         if value not in supported:
             raise ValueError(f"backend must be one of {sorted(supported)}")
         return value

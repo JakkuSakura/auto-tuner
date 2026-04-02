@@ -10,7 +10,7 @@ from auto_tuner.web.app import app
 
 @pytest.fixture()
 def sample_config_path() -> Path:
-    return Path("examples/sample_experiment.toml")
+    return Path("tests/fixtures/sample_experiment.toml")
 
 
 @pytest.fixture()
