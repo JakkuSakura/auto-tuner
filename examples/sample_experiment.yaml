@@ -13,7 +13,7 @@ generation:
   sample_count: 3
   meta_prompt: |
     Focus on one coding-quality aspect: prefer direct, explicit, readable attribute access (e.g. `obj.value`) over
-    reflection/introspection patterns (e.g. `getattr(obj, "value")`, `hasattr`, `vars`, `__dict__`).
+    reflection/introspection patterns (e.g. `getattr`, `hasattr`, `vars`, `__dict__`).
 
     When selection is required, use an explicit mapping/registry or typed protocol instead of dynamic lookup.
 
@@ -26,6 +26,7 @@ grading:
   max_retries: 2
 
 training:
+  method: "sft"
   model_name: "Qwen/Qwen2.5-0.5B-Instruct"
   max_seq_length: 2048
   load_in_4bit: true

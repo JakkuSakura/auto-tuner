@@ -9,7 +9,7 @@ Turn one high-level tuning goal into a usable fine-tuning workflow.
 - **Prompt-in, pipeline-out** — start from a single meta-prompt instead of hand-authoring generation and grading prompts.
 - **OpenRouter-backed prompt synthesis** — generate the input/data-generation prompt and grading prompt automatically from the user’s goal.
 - **Production-shaped workflow** — CLI, FastAPI API, and SolidJS web UI all operate on the same run/artifact model.
-- **Deterministic local development** — fake backend and fallback prompt generation keep tests stable without external dependencies.
+- **Deterministic local development** — tests use stubs and recorded artifacts to avoid external dependencies.
 - **Managed run artifacts** — every run records prompts, generated data, grades, refined data, training spec, training result, and report output.
 - **Upgrade path to real training** — guarded Unsloth backend supports live execution only where the environment is compatible.
 - **Operational tooling included** — list, inspect, export, download, and delete runs from the CLI or API.
@@ -21,7 +21,7 @@ Turn one high-level tuning goal into a usable fine-tuning workflow.
    - a generation prompt that includes concrete task/code examples
    - a grading prompt
 3. The pipeline generates examples, grades them, refines them, and stores artifacts.
-4. The training backend runs in fake mode by default or guarded Unsloth mode when enabled.
+4. The training backend auto-selects a real backend when available (or uses `training.backend="fake"` explicitly).
 5. The UI and API expose run history, prompts, reports, and exports.
 
 ## Example meta-prompt
@@ -59,7 +59,7 @@ def read_value(obj):
 - Frontend: SolidJS + Tailwind CSS + Vite
 - Frontend package manager: pnpm
 - Prompt generation: OpenRouter via `OPENROUTER_API_KEY`
-- Training backend: fake backend by default, guarded optional `unsloth` backend
+- Training backend: auto-detected real backend when available (or set `training.backend="fake"` explicitly)
 - Tests: pytest
 
 ## Quick start
@@ -92,22 +92,25 @@ pnpm --dir frontend build
 
 ## Prompt generation behavior
 
-With `OPENROUTER_API_KEY` set, the app asks OpenRouter to derive:
+`OPENROUTER_API_KEY` is required. The app asks OpenRouter to derive:
 - the input/data-generation prompt
 - the grading prompt
 
-Without `OPENROUTER_API_KEY`, the app falls back to deterministic local prompt generation so tests remain stable.
+If the key is missing, `auto-tuner run` exits with an error (no fallback mode).
 
 ## Run artifacts
 
 Each run records:
-- `prompts.json`
+- `prompts/` (Markdown prompts)
+- `prompts.json` (machine-readable snapshot)
 - `generated.jsonl`
 - `graded.jsonl`
-- `refined.jsonl`
+- `training_dataset.jsonl`
 - `training_spec.json`
 - `training_result.json`
+- `events.jsonl`
 - `report.json`
+- `workspaces/` (per-example workspace folders)
 
 ## Unsloth backend
 
