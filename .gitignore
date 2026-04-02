@@ -203,6 +203,7 @@ cython_debug/
 
 # Project local artifacts
 .artifacts/
+output/
 frontend/node_modules/
 frontend/dist/
 

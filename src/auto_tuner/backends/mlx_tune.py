@@ -11,8 +11,11 @@ class MlxTuneTrainingBackend:
 
     def validate(self) -> None:
         if platform.system() != "Darwin":
-            return None
-        return None
+            raise RuntimeError(
+                "MLX-Tune backend is only available on macOS (Apple Silicon)."
+            )
+        if missing := self._dependency_missing_reason():
+            raise RuntimeError(missing)
 
     @staticmethod
     def _dependency_missing_reason() -> str | None:

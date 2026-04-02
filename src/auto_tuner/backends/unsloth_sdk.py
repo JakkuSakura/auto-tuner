@@ -14,8 +14,9 @@ class UnslothTrainingBackend:
     def validate(self) -> None:
         unsupported = self._unsupported_reason()
         if unsupported:
-            return None
-        return None
+            raise RuntimeError(unsupported)
+        if missing := self._dependency_missing_reason():
+            raise RuntimeError(missing)
 
     @staticmethod
     def _dependency_missing_reason() -> str | None:
