@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
+from auto_tuner.models.training import GrpoSpec
+
 
 def _load_yaml(path: Path) -> dict[str, object]:
     try:
@@ -32,15 +34,13 @@ class OpenRouterConfig(BaseModel):
     grading_model: str = "z-ai/glm-5"
     http_referer: str = "http://localhost"
     app_name: str = "auto-tuner"
+    timeout_seconds: float = 180.0
+    max_attempts: int = 3
 
 
 class GenerationConfig(BaseModel):
     sample_count: int = 3
-    meta_prompt: str = (
-        "Improve Python code quality by encouraging direct, explicit, readable access patterns. "
-        "Avoid reflection/introspection-driven access and other dynamic lookup patterns. "
-        "Prefer straightforward attribute and mapping access that is easy to review and type-check."
-    )
+    meta_prompt: str
 
     @field_validator("sample_count")
     @classmethod
@@ -56,6 +56,7 @@ class GradingConfig(BaseModel):
 
 class TrainingConfig(BaseModel):
     backend: str = "auto"
+    method: str = "sft"
     model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
     max_seq_length: int = 2048
     load_in_4bit: bool = True
@@ -64,6 +65,7 @@ class TrainingConfig(BaseModel):
     output_dir: str = "./output"
     lora_rank: int = 16
     learning_rate: float = 2e-4
+    grpo: GrpoSpec = Field(default_factory=GrpoSpec)
 
     @field_validator("backend")
     @classmethod
@@ -71,6 +73,14 @@ class TrainingConfig(BaseModel):
         supported = {"auto", "fake", "unsloth", "mlx_tune"}
         if value not in supported:
             raise ValueError(f"backend must be one of {sorted(supported)}")
+        return value
+
+    @field_validator("method")
+    @classmethod
+    def validate_method(cls, value: str) -> str:
+        supported = {"sft", "grpo"}
+        if value not in supported:
+            raise ValueError(f"method must be one of {sorted(supported)}")
         return value
 
 
@@ -86,12 +96,12 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     candidate = Path(
         config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.yaml")
     )
-    data: dict[str, object] = {}
-    if candidate.exists():
-        if candidate.suffix in {".yaml", ".yml"}:
-            data = _load_yaml(candidate)
-        else:
-            data = tomllib.loads(candidate.read_text())
+    if not candidate.exists():
+        raise FileNotFoundError(f"Config file not found: {candidate}")
+    if candidate.suffix in {".yaml", ".yml"}:
+        data = _load_yaml(candidate)
+    else:
+        data = tomllib.loads(candidate.read_text())
 
     settings = Settings.model_validate(data)
 

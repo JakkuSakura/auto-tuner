@@ -36,6 +36,7 @@ def test_unsloth_backend_is_guarded_on_unsupported_platform(tmp_path: Path) -> N
     dataset_path.write_text('{"text":"hello"}\n')
     spec = TrainingSpec(
         backend="unsloth",
+        method="sft",
         model_name="model",
         max_seq_length=128,
         load_in_4bit=True,
@@ -58,6 +59,7 @@ def test_mlx_tune_backend_is_guarded_on_non_macos(tmp_path: Path, monkeypatch) -
     dataset_path.write_text('{"text":"hello"}\n')
     spec = TrainingSpec(
         backend="mlx_tune",
+        method="sft",
         model_name="model",
         max_seq_length=128,
         load_in_4bit=True,
