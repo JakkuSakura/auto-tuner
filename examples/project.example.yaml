@@ -4,11 +4,7 @@ app:
 
 generation:
   sample_count: 3
-  meta_prompt: |
-    Improve Python code quality by encouraging direct, explicit, readable access patterns over dynamic access patterns.
-
-    Hard rule: do not use Python reflection/introspection-based access patterns such as `getattr(`, `hasattr(`,
-    `.__dict__`, or `vars(` in the output.
+  meta_prompt_file: "prompts/meta_prompt.md"
 
 grading:
   max_retries: 2
