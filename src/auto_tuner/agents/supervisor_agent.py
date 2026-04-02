@@ -12,13 +12,11 @@ from auto_tuner.llm.openrouter import PromptBundle, build_prompt_provider
 
 
 @dataclass(frozen=True)
-class GeneratedWorkspaceExample:
+class GeneratedCleanWorkspaceExample:
     task: str
-    naive_solution: str
     clean_solution: str
     generation_prompt: str
     task_path: Path
-    naive_solution_path: Path
     clean_solution_path: Path
     agent_request_path: Path
     agent_response_path: Path
@@ -27,7 +25,7 @@ class GeneratedWorkspaceExample:
 class SupervisorAgent(Protocol):
     def build_prompts(self, meta_prompt: str) -> PromptBundle: ...
 
-    def generate_example(
+    def generate_clean_example(
         self,
         *,
         workspace_dir: Path,
@@ -35,7 +33,7 @@ class SupervisorAgent(Protocol):
         generation_prompt: str,
         example_id: int,
         theme_hint: str,
-    ) -> GeneratedWorkspaceExample: ...
+    ) -> GeneratedCleanWorkspaceExample: ...
 
     def write_refined_solution_after_training(
         self,
@@ -58,7 +56,7 @@ class OpenRouterSupervisorAgent:
     def build_prompts(self, meta_prompt: str) -> PromptBundle:
         return self._prompt_provider.build_prompts(meta_prompt)
 
-    def generate_example(
+    def generate_clean_example(
         self,
         *,
         workspace_dir: Path,
@@ -66,7 +64,7 @@ class OpenRouterSupervisorAgent:
         generation_prompt: str,
         example_id: int,
         theme_hint: str,
-    ) -> GeneratedWorkspaceExample:
+    ) -> GeneratedCleanWorkspaceExample:
         if not self._config.api_key:
             raise RuntimeError(
                 "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
@@ -94,23 +92,18 @@ class OpenRouterSupervisorAgent:
 
         extracted = _extract_files_from_agent_markdown(response)
         task = extracted["task.md"]
-        naive_solution = extracted["naive_solution.py"]
         clean_solution = extracted["clean_solution.py"]
 
         task_path = workspace_dir / "task.md"
-        naive_solution_path = workspace_dir / "naive_solution.py"
         clean_solution_path = workspace_dir / "clean_solution.py"
         task_path.write_text(task)
-        naive_solution_path.write_text(naive_solution)
         clean_solution_path.write_text(clean_solution)
 
-        return GeneratedWorkspaceExample(
+        return GeneratedCleanWorkspaceExample(
             task=task,
-            naive_solution=naive_solution,
             clean_solution=clean_solution,
             generation_prompt=generation_prompt,
             task_path=task_path,
-            naive_solution_path=naive_solution_path,
             clean_solution_path=clean_solution_path,
             agent_request_path=agent_request_path,
             agent_response_path=agent_response_path,
@@ -201,15 +194,10 @@ def _build_generation_request(
             "",
             "## Output format (strict)",
             "",
-            "Return Markdown with exactly 3 sections and exactly 3 fenced code blocks:",
+            "Return Markdown with exactly 2 sections and exactly 2 fenced code blocks:",
             "",
             "### task.md",
             "```markdown",
-            "...",
-            "```",
-            "",
-            "### naive_solution.py",
-            "```python",
             "...",
             "```",
             "",
@@ -220,7 +208,6 @@ def _build_generation_request(
             "",
             "Constraints:",
             "- The task must be meaningfully different from other examples.",
-            "- The naive solution should demonstrate the anti-pattern (it may use dynamic access).",
             (
                 "- The clean solution must satisfy the meta-prompt goal and avoid dynamic "
                 "access patterns."
@@ -311,7 +298,7 @@ def _extract_python_from_refinement(markdown_text: str) -> str | None:
 
 def _extract_files_from_agent_markdown(markdown_text: str) -> dict[str, str]:
     pattern = re.compile(
-        r"###\s+(?P<name>task\.md|naive_solution\.py|clean_solution\.py)\s*\n"
+        r"###\s+(?P<name>task\.md|clean_solution\.py)\s*\n"
         r"```(?P<lang>markdown|python)\s*\n(?P<body>.*?)\n```",
         re.DOTALL,
     )
@@ -319,7 +306,7 @@ def _extract_files_from_agent_markdown(markdown_text: str) -> dict[str, str]:
         match["name"]: match["body"].strip() + "\n"
         for match in pattern.finditer(markdown_text)
     }
-    expected = {"task.md", "naive_solution.py", "clean_solution.py"}
+    expected = {"task.md", "clean_solution.py"}
     missing = expected - set(matches)
     if missing:
         raise ValueError(f"Agent response missing sections: {sorted(missing)}")

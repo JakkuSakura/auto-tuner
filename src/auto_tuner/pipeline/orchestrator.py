@@ -64,7 +64,9 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     run_paths = store.create_run_paths()
     artifacts: list[ArtifactRecord] = []
     requested_backend = settings.training.backend
-    worker = TrainingWorkerAgent.from_requested_backend(requested_backend)
+    worker = TrainingWorkerAgent.from_requested_backend(
+        requested_backend, model_name=settings.training.model_name
+    )
     resolved_backend = worker.resolved_backend
 
     if console is not None:
@@ -118,6 +120,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 run_root=run_paths.root,
                 workspaces_root=run_paths.workspaces_root,
                 supervisor=supervisor,
+                worker=worker,
             )
     else:
         generated_payload = generate_examples(
@@ -126,6 +129,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
             run_root=run_paths.root,
             workspaces_root=run_paths.workspaces_root,
             supervisor=supervisor,
+            worker=worker,
         )
     generated = generated_payload.examples
     workspace_records = generated_payload.workspace_records
