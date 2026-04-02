@@ -23,14 +23,20 @@ def _read_config_text(config_path: str | None) -> str:
 @app.command()
 def run(config: str = typer.Option(None, help="Path to experiment config.")) -> None:
     console = Console()
-    config_text = _read_config_text(config)
-    settings = load_settings(config)
-    pipeline_run = run_pipeline(settings, config_text, console=console)
-    typer.echo(f"run_id={pipeline_run.run_id}")
-    typer.echo(f"status={pipeline_run.status}")
-    typer.echo(f"artifacts={pipeline_run.paths.root}")
-    if pipeline_run.status != "completed":
-        raise typer.Exit(code=1)
+    try:
+        config_text = _read_config_text(config)
+        settings = load_settings(config)
+        pipeline_run = run_pipeline(settings, config_text, console=console)
+        typer.echo(f"run_id={pipeline_run.run_id}")
+        typer.echo(f"status={pipeline_run.status}")
+        typer.echo(f"artifacts={pipeline_run.paths.root}")
+        if pipeline_run.status != "completed":
+            raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()

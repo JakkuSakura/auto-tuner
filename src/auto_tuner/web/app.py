@@ -42,7 +42,10 @@ def create_run(config_path: str | None = None) -> dict[str, str]:
         if config_path and Path(config_path).exists()
         else ""
     )
-    pipeline_run = run_pipeline(settings, config_text)
+    try:
+        pipeline_run = run_pipeline(settings, config_text)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"run_id": pipeline_run.run_id, "status": pipeline_run.status}
 
 

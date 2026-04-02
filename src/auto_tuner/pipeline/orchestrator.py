@@ -97,6 +97,10 @@ def _failed_job(
 
 
 def run_pipeline(settings: Settings, config_text: str, console=None) -> PipelineRun:
+    if not settings.openrouter.api_key:
+        raise RuntimeError(
+            "OpenRouter API key is required. Set OPENROUTER_API_KEY or configure openrouter.api_key."
+        )
     store = ArtifactStore(settings.app.artifacts_dir)
     run_paths = store.create_run_paths()
     artifacts: list[ArtifactRecord] = []

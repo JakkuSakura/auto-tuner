@@ -10,13 +10,13 @@ def test_grade_example_passes_by_default() -> None:
     example = DatasetExample(
         task="task",
         naive_solution="code",
-        clean_solution="return getattr(obj, 'value')",
+        clean_solution="return obj.value",
     )
     prompts = PromptBundle(
         meta_prompt="goal",
         generation_prompt="generation",
         grading_prompt="grading rubric",
-        source="fallback",
+        source="openrouter",
     )
 
     result = grade_example(example, GradingConfig(), prompts)

@@ -6,11 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from auto_tuner.web.app import app
+from tests.support.openrouter_stub import install_openrouter_stub
 
 
 @pytest.fixture(autouse=True)
 def _isolate_openrouter_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    install_openrouter_stub(monkeypatch)
 
 
 @pytest.fixture()
