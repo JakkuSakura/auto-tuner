@@ -14,7 +14,7 @@ app = typer.Typer(no_args_is_help=True)
 
 
 def _read_config_text(config_path: str | None) -> str:
-    candidate = Path(config_path or "examples/sample_experiment.toml")
+    candidate = Path(config_path or "examples/sample_experiment.yaml")
     return candidate.read_text() if candidate.exists() else ""
 
 

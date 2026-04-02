@@ -7,6 +7,19 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 
 
+def _load_yaml(path: Path) -> dict[str, object]:
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "YAML config support requires PyYAML. Install with: uv add pyyaml"
+        ) from exc
+    loaded = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("YAML config root must be a mapping")
+    return loaded
+
+
 class AppConfig(BaseModel):
     artifacts_dir: Path = Path(".artifacts")
     frontend_dist: Path = Path("frontend/dist")
@@ -94,11 +107,14 @@ def _inject_forbidden_patterns(meta_prompt: str) -> str:
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
     candidate = Path(
-        config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.toml")
+        config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.yaml")
     )
     data: dict[str, object] = {}
     if candidate.exists():
-        data = tomllib.loads(candidate.read_text())
+        if candidate.suffix in {".yaml", ".yml"}:
+            data = _load_yaml(candidate)
+        else:
+            data = tomllib.loads(candidate.read_text())
 
     settings = Settings.model_validate(data)
     settings.generation.meta_prompt = _inject_forbidden_patterns(settings.generation.meta_prompt)

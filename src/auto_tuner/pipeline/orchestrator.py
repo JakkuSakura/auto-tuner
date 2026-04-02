@@ -63,7 +63,7 @@ def _write_example_workspace(
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     task_path = workspace_dir / "task.md"
-    generation_prompt_path = workspace_dir / "generation_prompt.txt"
+    generation_prompt_path = workspace_dir / "generation_prompt.md"
     naive_solution_path = workspace_dir / "naive_solution.py"
     clean_solution_path = workspace_dir / "clean_solution.py"
 
@@ -165,6 +165,18 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     prompts_path = run_paths.root / "prompts.json"
     ArtifactStore.write_json(prompts_path, prompts_payload)
     artifacts.append(ArtifactRecord("prompts", prompts_path))
+
+    prompts_md_dir = run_paths.root / "prompts"
+    prompts_md_dir.mkdir(parents=True, exist_ok=True)
+    meta_prompt_path = prompts_md_dir / "meta_prompt.md"
+    generation_prompt_path = prompts_md_dir / "generation_prompt.md"
+    grading_prompt_path = prompts_md_dir / "grading_prompt.md"
+    meta_prompt_path.write_text(prompt_bundle.meta_prompt)
+    generation_prompt_path.write_text(prompt_bundle.generation_prompt)
+    grading_prompt_path.write_text(prompt_bundle.grading_prompt)
+    artifacts.append(ArtifactRecord("meta prompt (md)", meta_prompt_path))
+    artifacts.append(ArtifactRecord("generation prompt (md)", generation_prompt_path))
+    artifacts.append(ArtifactRecord("grading prompt (md)", grading_prompt_path))
     if console is not None:
         render_prompts(console, prompt_bundle, prompt_bundle.source)
 

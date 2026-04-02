@@ -68,7 +68,7 @@ def read_value(obj):
 
 ```bash
 uv sync --extra dev
-uv run auto-tuner run --config examples/sample_experiment.toml
+uv run auto-tuner run --config examples/sample_experiment.yaml
 uv run uvicorn auto_tuner.web.app:app --reload
 ```
 
@@ -115,7 +115,7 @@ Install optional dependencies:
 
 ```bash
 uv sync --extra dev --extra unsloth
-uv run auto-tuner run --config examples/sample_experiment.toml
+uv run auto-tuner run --config examples/sample_experiment.yaml
 ```
 
 The Unsloth backend attempts live fine-tuning only when the environment is compatible. On unsupported environments such as local macOS, it returns a guarded unsupported result instead of trying to train.

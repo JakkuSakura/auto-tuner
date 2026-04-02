@@ -58,6 +58,7 @@ def render_examples(console: Console, examples: list[dict[str, str]], run_root: 
             ("clean_solution_path", "clean"),
             ("grade_path", "grade"),
             ("refined_solution_path", "refined"),
+            ("generation_prompt_path", "prompt"),
         ]
         parts: list[str] = []
         for key, label in file_keys:

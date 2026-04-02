@@ -97,7 +97,7 @@ def export_run(run_id: str) -> FileResponse:
 def frontend_config() -> dict[str, object]:
     settings = load_settings()
     return {
-        "defaultConfigPath": "examples/sample_experiment.toml",
+        "defaultConfigPath": "examples/sample_experiment.yaml",
         "backend": settings.training.backend,
         "demoModels": settings.demo.example_models,
         "defaultPrompt": settings.generation.meta_prompt,

@@ -71,7 +71,7 @@ async function fetchRuns(): Promise<RunListItem[]> {
 export default function App() {
   const [config] = createResource<FrontendConfig>(fetchFrontendConfig);
   const [runs, { refetch }] = createResource<RunListItem[]>(fetchRuns);
-  const [configPath, setConfigPath] = createSignal('configs/experiments/sample_experiment.toml');
+  const [configPath, setConfigPath] = createSignal('examples/sample_experiment.yaml');
   const [runId, setRunId] = createSignal('');
 
   const [run] = createResource(runId, async (id: string): Promise<RunDetail | null> => {
