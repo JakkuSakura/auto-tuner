@@ -4,7 +4,13 @@ app:
 
 generation:
   sample_count: 3
-  meta_prompt_file: "prompts/meta_prompt.md"
+  meta_prompt: |
+    Improve Python code quality by encouraging direct, explicit, readable attribute access over dynamic lookup.
+
+    Focus on one aspect: avoid reflection/introspection patterns like `getattr`, `hasattr`, `vars`, and `__dict__`.
+
+    Hard rule: do not use Python reflection/introspection-based access patterns such as `getattr(`, `hasattr(`,
+    `.__dict__`, or `vars(` in the output.
 
 grading:
   max_retries: 2

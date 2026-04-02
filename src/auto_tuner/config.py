@@ -36,7 +36,6 @@ class OpenRouterConfig(BaseModel):
 
 class GenerationConfig(BaseModel):
     sample_count: int = 3
-    meta_prompt_file: Path | None = None
     meta_prompt: str = (
         "Improve Python code quality by encouraging direct, explicit, readable access patterns. "
         "Avoid reflection/introspection-driven access and other dynamic lookup patterns. "
@@ -106,11 +105,6 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             data = tomllib.loads(candidate.read_text())
 
     settings = Settings.model_validate(data)
-    if settings.generation.meta_prompt_file is not None:
-        meta_path = settings.generation.meta_prompt_file
-        if not meta_path.is_absolute():
-            meta_path = candidate.parent / meta_path
-        settings.generation.meta_prompt = meta_path.read_text()
 
     if artifacts_dir := os.getenv("AUTO_TUNER_ARTIFACTS_DIR"):
         settings.app.artifacts_dir = Path(artifacts_dir)
