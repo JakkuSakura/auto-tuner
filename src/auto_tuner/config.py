@@ -93,18 +93,6 @@ class Settings(BaseModel):
     demo: DemoConfig = Field(default_factory=DemoConfig)
 
 
-_FORBIDDEN_DYNAMIC_ACCESS_NOTE = (
-    "Hard rule: do not use Python reflection/introspection-based access patterns such as "
-    "`getattr(`, `hasattr(`, `.__dict__`, or `vars(` in the output."
-)
-
-
-def _inject_forbidden_patterns(meta_prompt: str) -> str:
-    if _FORBIDDEN_DYNAMIC_ACCESS_NOTE in meta_prompt:
-        return meta_prompt
-    return f"{meta_prompt.strip()}\n\n{_FORBIDDEN_DYNAMIC_ACCESS_NOTE}\n"
-
-
 def load_settings(config_path: str | Path | None = None) -> Settings:
     candidate = Path(
         config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.yaml")
@@ -117,7 +105,6 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
             data = tomllib.loads(candidate.read_text())
 
     settings = Settings.model_validate(data)
-    settings.generation.meta_prompt = _inject_forbidden_patterns(settings.generation.meta_prompt)
 
     if artifacts_dir := os.getenv("AUTO_TUNER_ARTIFACTS_DIR"):
         settings.app.artifacts_dir = Path(artifacts_dir)
