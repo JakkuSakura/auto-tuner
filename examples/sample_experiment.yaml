@@ -12,7 +12,11 @@ openrouter:
 generation:
   sample_count: 3
   meta_prompt: |
-    Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns over dynamic access patterns.
+    Focus on one coding-quality aspect: prefer direct attribute access (e.g. `obj.value`) over reflection/introspection
+    patterns (e.g. `getattr(obj, "value")`, `hasattr`, `vars`, `__dict__`).
+
+    The clean solution must use explicit, readable attribute access or an explicit mapping/registry when selection is
+    required. Do not include or mention any specific code snippet from the user’s codebase.
 
 grading:
   max_retries: 2
@@ -32,4 +36,3 @@ demo:
   example_models:
     - "Qwen/Qwen2.5-0.5B-Instruct"
     - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-
