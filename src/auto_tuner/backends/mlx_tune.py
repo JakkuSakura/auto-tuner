@@ -1,48 +1,40 @@
 from __future__ import annotations
 
-import inspect
 import platform
-import sys
 from pathlib import Path
 
 from auto_tuner.models.training import TrainingJob, TrainingSpec
 
 
-class UnslothTrainingBackend:
-    name = "unsloth"
+class MlxTuneTrainingBackend:
+    name = "mlx_tune"
 
     def validate(self) -> None:
-        unsupported = self._unsupported_reason()
-        if unsupported:
+        if platform.system() != "Darwin":
             return None
         try:
-            import unsloth  # noqa: F401
+            import mlx_tune  # noqa: F401
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "Unsloth backend requires the optional 'unsloth' dependency group."
-            ) from exc
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError(
-                "Unsloth dependency is present but failed to initialize in this environment."
+                "MLX-Tune backend requires the optional 'mlx_tune' dependency group."
             ) from exc
 
     def train(self, dataset_path: Path, spec: TrainingSpec) -> TrainingJob:
-        unsupported = self._unsupported_reason()
-        if unsupported:
+        if platform.system() != "Darwin":
+            summary = "Live MLX-Tune fine-tuning is only available on macOS (Apple Silicon)."
             return TrainingJob(
-                job_id=f"unsloth-{dataset_path.stem}",
+                job_id=f"mlx-tune-{dataset_path.stem}",
                 status="unsupported",
                 backend=self.name,
                 mode="guarded",
-                summary=unsupported,
+                summary=summary,
                 artifacts={"dataset_path": str(dataset_path), "output_dir": spec.output_dir},
-                warnings=[unsupported],
+                warnings=[summary],
             )
 
         try:  # pragma: no cover - requires live compatible environment
             from datasets import load_dataset
-            from trl import SFTConfig, SFTTrainer
-            from unsloth import FastLanguageModel
+            from mlx_tune import FastLanguageModel, SFTConfig, SFTTrainer
 
             model, tokenizer = FastLanguageModel.from_pretrained(
                 model_name=spec.model_name,
@@ -66,8 +58,6 @@ class UnslothTrainingBackend:
                 bias="none",
                 use_gradient_checkpointing="unsloth",
                 random_state=3407,
-                use_rslora=False,
-                loftq_config=None,
             )
             dataset = load_dataset("json", data_files=str(dataset_path), split="train")
             trainer_args = SFTConfig(
@@ -75,31 +65,29 @@ class UnslothTrainingBackend:
                 num_train_epochs=spec.num_train_epochs,
                 per_device_train_batch_size=spec.per_device_train_batch_size,
                 learning_rate=spec.learning_rate,
-                report_to="none",
                 dataset_text_field="text",
-                max_length=spec.max_seq_length,
+                max_seq_length=spec.max_seq_length,
             )
-            trainer_kwargs = {
-                "model": model,
-                "args": trainer_args,
-                "train_dataset": dataset,
-            }
-            signature = inspect.signature(SFTTrainer)
-            if "processing_class" in signature.parameters:
-                trainer_kwargs["processing_class"] = tokenizer
-            else:
-                trainer_kwargs["tokenizer"] = tokenizer
-            trainer = SFTTrainer(**trainer_kwargs)
+            trainer = SFTTrainer(
+                model=model,
+                train_dataset=dataset,
+                tokenizer=tokenizer,
+                args=trainer_args,
+                max_seq_length=spec.max_seq_length,
+            )
             result = trainer.train()
+
+            # Save adapters (Unsloth-compatible API).
             model.save_pretrained(spec.output_dir)
             tokenizer.save_pretrained(spec.output_dir)
+
             loss = getattr(result, "training_loss", None)
             return TrainingJob(
-                job_id=f"unsloth-{dataset_path.stem}",
+                job_id=f"mlx-tune-{dataset_path.stem}",
                 status="completed",
                 backend=self.name,
                 mode="live",
-                summary="Completed live Unsloth fine-tuning run.",
+                summary="Completed live MLX-Tune fine-tuning run.",
                 artifacts={
                     "dataset_path": str(dataset_path),
                     "output_dir": spec.output_dir,
@@ -112,19 +100,11 @@ class UnslothTrainingBackend:
             )
         except Exception as exc:  # pragma: no cover - live path only
             return TrainingJob(
-                job_id=f"unsloth-{dataset_path.stem}",
+                job_id=f"mlx-tune-{dataset_path.stem}",
                 status="failed",
                 backend=self.name,
                 mode="live",
-                summary=f"Unsloth run failed: {exc}",
+                summary=f"MLX-Tune run failed: {exc}",
                 artifacts={"dataset_path": str(dataset_path), "output_dir": spec.output_dir},
                 warnings=[str(exc)],
             )
-
-    @staticmethod
-    def _unsupported_reason() -> str | None:
-        if platform.system() == "Darwin":
-            return "Live Unsloth fine-tuning is guarded on macOS; use a Linux or Windows GPU environment."
-        if sys.version_info < (3, 11) or sys.version_info >= (3, 14):
-            return "Live Unsloth fine-tuning requires Python 3.11-3.13."
-        return None

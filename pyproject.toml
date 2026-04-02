@@ -1,7 +1,7 @@
 [project]
 name = "auto-tuner"
 version = "0.1.0"
-description = "Synthetic dataset generation and Unsloth-backed fine-tuning orchestrator"
+description = "Synthetic dataset generation and optional fine-tuning orchestrator (Unsloth / MLX-Tune)"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = { text = "MIT" }
@@ -13,9 +13,6 @@ dependencies = [
     "typer>=0.16.0,<1.0.0",
     "rich>=13.0.0,<14.0.0",
     "uvicorn>=0.35.0,<1.0.0",
-    "unsloth>=2026.3.0",
-    "trl>=0.19.0,<1.0.0",
-    "datasets>=4.0.0,<5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +21,15 @@ dev = [
     "pytest-asyncio>=1.1.0,<2.0.0",
     "pytest-cov>=6.2.0,<7.0.0",
     "ruff>=0.12.0,<1.0.0",
+]
+unsloth = [
+    "unsloth",
+    "trl",
+    "datasets",
+]
+mlx_tune = [
+    "mlx-tune",
+    "datasets",
 ]
 
 [project.scripts]

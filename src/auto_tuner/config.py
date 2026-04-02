@@ -24,9 +24,9 @@ class OpenRouterConfig(BaseModel):
 class GenerationConfig(BaseModel):
     sample_count: int = 3
     meta_prompt: str = (
-        "Improve attribute access style and maintainability by encouraging direct, explicit, readable patterns. "
-        "Avoid dynamic access patterns such as getattr(), hasattr(), direct __dict__ manipulation, and vars(). "
-        "Prefer obj.attr over getattr(obj, 'attr'), and use explicit dict access over introspection."
+        "Improve Python code quality by encouraging direct, explicit, readable access patterns. "
+        "Avoid reflection/introspection-driven access and other dynamic lookup patterns. "
+        "Prefer straightforward attribute and mapping access that is easy to review and type-check."
     )
 
     @field_validator("sample_count")
@@ -55,7 +55,7 @@ class TrainingConfig(BaseModel):
     @field_validator("backend")
     @classmethod
     def validate_backend(cls, value: str) -> str:
-        supported = {"fake", "unsloth"}
+        supported = {"fake", "unsloth", "mlx_tune"}
         if value not in supported:
             raise ValueError(f"backend must be one of {sorted(supported)}")
         return value
@@ -80,6 +80,18 @@ class Settings(BaseModel):
     demo: DemoConfig = Field(default_factory=DemoConfig)
 
 
+_FORBIDDEN_DYNAMIC_ACCESS_NOTE = (
+    "Hard rule: do not use Python reflection/introspection-based access patterns such as "
+    "`getattr(`, `hasattr(`, `.__dict__`, or `vars(` in the output."
+)
+
+
+def _inject_forbidden_patterns(meta_prompt: str) -> str:
+    if _FORBIDDEN_DYNAMIC_ACCESS_NOTE in meta_prompt:
+        return meta_prompt
+    return f"{meta_prompt.strip()}\n\n{_FORBIDDEN_DYNAMIC_ACCESS_NOTE}\n"
+
+
 def load_settings(config_path: str | Path | None = None) -> Settings:
     candidate = Path(
         config_path or os.getenv("AUTO_TUNER_CONFIG", "examples/sample_experiment.toml")
@@ -89,6 +101,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
         data = tomllib.loads(candidate.read_text())
 
     settings = Settings.model_validate(data)
+    settings.generation.meta_prompt = _inject_forbidden_patterns(settings.generation.meta_prompt)
 
     if artifacts_dir := os.getenv("AUTO_TUNER_ARTIFACTS_DIR"):
         settings.app.artifacts_dir = Path(artifacts_dir)
