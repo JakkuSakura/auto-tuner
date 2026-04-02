@@ -18,7 +18,6 @@ def test_web_run_flow(client) -> None:
     assert run_response.status_code == 200
     detail = run_response.json()
     assert detail["report"]["backend"] == "fake"
-    assert detail["report"]["demo"]["input_prompt"]
     assert detail["prompts"]["generation_prompt"]
     assert detail["prompts"]["grading_prompt"]
     assert detail["training"]["mode"] == "simulated"

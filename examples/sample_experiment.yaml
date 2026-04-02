@@ -34,9 +34,3 @@ training:
   output_dir: "./output"
   lora_rank: 16
   learning_rate: 0.0002
-
-demo:
-  enabled: true
-  example_models:
-    - "Qwen/Qwen2.5-0.5B-Instruct"
-    - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"

@@ -15,7 +15,6 @@ def test_load_settings_uses_defaults_for_existing_example(sample_config_path: Pa
     assert settings.generation.meta_prompt.startswith(
         "Improve attribute access style and maintainability"
     )
-    assert settings.demo.example_models[0] == "Qwen/Qwen2.5-0.5B-Instruct"
 
 
 def test_load_settings_rejects_invalid_backend(tmp_path: Path) -> None:

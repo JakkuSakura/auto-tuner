@@ -59,26 +59,6 @@ def _write_grade_workspace(
     return {"grade_path": _relative_path(run_root, grade_path)}
 
 
-def _build_demo(settings: Settings, prompts: dict[str, str]) -> dict[str, object]:
-    before = "def read_value(obj):\n    return getattr(obj, 'value')\n"
-    after = "def read_value(obj):\n    return obj.value\n"
-    return {
-        "meta_prompt": prompts["meta_prompt"],
-        "input_prompt": prompts["generation_prompt"],
-        "grading_prompt": prompts["grading_prompt"],
-        "prompt_source": prompts["prompt_source"],
-        "before_auto_tuning": before,
-        "after_auto_tuning": after,
-        "recommended_small_models": settings.demo.example_models,
-        "notes": [
-            "Qwen/Qwen2.5-0.5B-Instruct is a good first small instruction-tuning target.",
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0 is included as a second compact example.",
-            "Use the fake backend for deterministic local development and tests.",
-            "The Unsloth/MLX-Tune backends are guarded and may report unsupported.",
-        ],
-    }
-
-
 def _failed_job(
     backend_name: str,
     dataset_path: Path,
@@ -304,7 +284,6 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     if console is not None:
         render_examples(console, workspace_records, run_paths.root)
 
-    demo = _build_demo(settings, prompts_payload) if settings.demo.enabled else {}
     report = {
         "run_id": run_paths.root.name,
         "generated_examples": len(generated),
@@ -319,7 +298,6 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         "workspaces_root": str(run_paths.workspaces_root),
         "workspaces_index": str(run_paths.workspaces_index_path),
         "artifacts": {record.label: str(record.path) for record in artifacts},
-        "demo": demo,
         "system": system_info,
         "model": {
             "name": spec.model_name,

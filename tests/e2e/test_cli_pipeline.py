@@ -31,7 +31,6 @@ def test_cli_run_creates_artifacts(tmp_path: Path, monkeypatch) -> None:
     assert (run_dir / "workspaces" / "example_0001" / "clean_solution.py").exists()
     assert (run_dir / "workspaces" / "example_0001" / "agent_request.md").exists()
     assert (run_dir / "workspaces" / "example_0001" / "agent_response.md").exists()
-    assert "demo" in (run_dir / "report.json").read_text()
 
 
 def test_cli_list_runs_shows_created_run(tmp_path: Path, monkeypatch) -> None:

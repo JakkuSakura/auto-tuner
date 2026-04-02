@@ -74,23 +74,12 @@ class TrainingConfig(BaseModel):
         return value
 
 
-class DemoConfig(BaseModel):
-    enabled: bool = True
-    example_models: list[str] = Field(
-        default_factory=lambda: [
-            "Qwen/Qwen2.5-0.5B-Instruct",
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        ]
-    )
-
-
 class Settings(BaseModel):
     app: AppConfig = Field(default_factory=AppConfig)
     openrouter: OpenRouterConfig = Field(default_factory=OpenRouterConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     grading: GradingConfig = Field(default_factory=GradingConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
-    demo: DemoConfig = Field(default_factory=DemoConfig)
 
 
 def load_settings(config_path: str | Path | None = None) -> Settings:

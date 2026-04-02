@@ -3,7 +3,6 @@ import { createResource, createSignal, For, Show } from 'solid-js';
 type FrontendConfig = {
   defaultConfigPath: string;
   backend: string;
-  demoModels: string[];
   defaultPrompt: string;
 };
 
@@ -45,16 +44,6 @@ type RunDetail = {
     training_mode: string;
     summary: string;
     warnings: string[];
-    demo: {
-      meta_prompt: string;
-      input_prompt: string;
-      grading_prompt: string;
-      prompt_source: string;
-      before_auto_tuning: string;
-      after_auto_tuning: string;
-      recommended_small_models: string[];
-      notes: string[];
-    };
   };
 };
 
@@ -212,29 +201,6 @@ export default function App() {
                         <div>
                           <h3 class="font-medium text-slate-200">Training summary</h3>
                           <p class="mt-2 text-slate-300">{detail.training.summary}</p>
-                        </div>
-
-                        <div>
-                          <h3 class="font-medium text-slate-200">Before / after</h3>
-                          <div class="mt-3 grid gap-3">
-                            <div>
-                              <p class="mb-1 text-xs uppercase tracking-wide text-slate-400">Before</p>
-                              <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-rose-200">{detail.report.demo.before_auto_tuning}</pre>
-                            </div>
-                            <div>
-                              <p class="mb-1 text-xs uppercase tracking-wide text-slate-400">After</p>
-                              <pre class="overflow-x-auto rounded-xl bg-slate-950 p-3 text-xs text-emerald-200">{detail.report.demo.after_auto_tuning}</pre>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <h3 class="font-medium text-slate-200">Small model examples</h3>
-                          <ul class="mt-2 list-disc space-y-1 pl-5 text-slate-300">
-                            <For each={detail.report.demo.recommended_small_models}>
-                              {(model: string) => <li>{model}</li>}
-                            </For>
-                          </ul>
                         </div>
                       </>
                     );

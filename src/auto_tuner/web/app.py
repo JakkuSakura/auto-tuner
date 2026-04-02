@@ -104,7 +104,6 @@ def frontend_config() -> dict[str, object]:
     return {
         "defaultConfigPath": "examples/sample_experiment.yaml",
         "backend": settings.training.backend,
-        "demoModels": settings.demo.example_models,
         "defaultPrompt": settings.generation.meta_prompt,
     }
 
