@@ -3,6 +3,7 @@ from __future__ import annotations
 import platform
 from pathlib import Path
 
+from auto_tuner.agents.workspace_agent import WorkspaceAgent
 from auto_tuner.backends.fake import FakeTrainingBackend
 from auto_tuner.backends.mlx_tune import MlxTuneTrainingBackend
 from auto_tuner.backends.unsloth_sdk import UnslothTrainingBackend
@@ -49,53 +50,12 @@ def _relative_path(root: Path, path: Path) -> str:
     return str(path.relative_to(root))
 
 
-def _write_example_workspace(
-    *,
-    run_root: Path,
-    workspaces_root: Path,
-    example_id: int,
-    task: str,
-    generation_prompt: str,
-    naive_solution: str,
-    clean_solution: str,
-) -> dict[str, str]:
-    workspace_dir = workspaces_root / f"example_{example_id:04d}"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    task_path = workspace_dir / "task.md"
-    generation_prompt_path = workspace_dir / "generation_prompt.md"
-    naive_solution_path = workspace_dir / "naive_solution.py"
-    clean_solution_path = workspace_dir / "clean_solution.py"
-
-    task_path.write_text(task)
-    generation_prompt_path.write_text(generation_prompt)
-    naive_solution_path.write_text(naive_solution)
-    clean_solution_path.write_text(clean_solution)
-
-    return {
-        "example_id": str(example_id),
-        "workspace_dir": _relative_path(run_root, workspace_dir),
-        "task_path": _relative_path(run_root, task_path),
-        "generation_prompt_path": _relative_path(run_root, generation_prompt_path),
-        "naive_solution_path": _relative_path(run_root, naive_solution_path),
-        "clean_solution_path": _relative_path(run_root, clean_solution_path),
-    }
-
-
 def _write_grade_workspace(
     *, run_root: Path, workspace_dir: Path, grade: dict[str, object]
 ) -> dict[str, str]:
     grade_path = workspace_dir / "grade.json"
     ArtifactStore.write_json(grade_path, grade)
     return {"grade_path": _relative_path(run_root, grade_path)}
-
-
-def _write_refined_workspace(
-    *, run_root: Path, workspace_dir: Path, refined_solution: str
-) -> dict[str, str]:
-    refined_solution_path = workspace_dir / "refined_solution.py"
-    refined_solution_path.write_text(refined_solution)
-    return {"refined_solution_path": _relative_path(run_root, refined_solution_path)}
 
 
 def _build_demo(settings: Settings, prompts: dict[str, str]) -> dict[str, object]:
@@ -182,22 +142,23 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
 
     if console is not None:
         with console.status("Generating examples..."):
-            generated = generate_examples(settings.generation, prompt_bundle)
-    else:
-        generated = generate_examples(settings.generation, prompt_bundle)
-    workspace_records: list[dict[str, str]] = []
-    for index, example in enumerate(generated, start=1):
-        workspace_records.append(
-            _write_example_workspace(
+            generated_payload = generate_examples(
+                config=settings.generation,
+                prompts=prompt_bundle,
                 run_root=run_paths.root,
                 workspaces_root=run_paths.workspaces_root,
-                example_id=index,
-                task=example.task,
-                generation_prompt=example.generation_prompt,
-                naive_solution=example.naive_solution,
-                clean_solution=example.clean_solution,
+                openrouter=settings.openrouter,
             )
+    else:
+        generated_payload = generate_examples(
+            config=settings.generation,
+            prompts=prompt_bundle,
+            run_root=run_paths.root,
+            workspaces_root=run_paths.workspaces_root,
+            openrouter=settings.openrouter,
         )
+    generated = generated_payload.examples
+    workspace_records = generated_payload.workspace_records
     workspace_index: dict[str, object] = {"version": 1, "examples": workspace_records}
     store.write_workspace_index(run_paths.workspaces_index_path, workspace_index)
     artifacts.append(ArtifactRecord("workspaces index", run_paths.workspaces_index_path))
@@ -242,24 +203,12 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
             refined_examples = refine_examples(generated, grades)
     else:
         refined_examples = refine_examples(generated, grades)
-    for example_id, example in enumerate(refined_examples, start=1):
-        workspace_dir = run_paths.workspaces_root / f"example_{example_id:04d}"
-        workspace_records[example_id - 1].update(
-            _write_refined_workspace(
-                run_root=run_paths.root,
-                workspace_dir=workspace_dir,
-                refined_solution=example.clean_solution,
-            )
-        )
-    store.write_workspace_index(run_paths.workspaces_index_path, workspace_index)
     records = [
         DatasetRecord(prompt=example.task, response=example.clean_solution)
         for example in refined_examples
     ]
     store.write_records(run_paths.refined_path, records)
     artifacts.append(ArtifactRecord("refined dataset", run_paths.refined_path))
-    if console is not None:
-        render_examples(console, workspace_records, run_paths.root)
 
     spec = TrainingSpec(
         backend=resolved_backend,
@@ -296,6 +245,39 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     artifacts.append(ArtifactRecord("training result", run_paths.training_result_path))
     if console is not None:
         render_training_result(console, job)
+
+    agent = WorkspaceAgent(settings.openrouter)
+    for record in workspace_records:
+        workspace_dir = run_paths.root / record["workspace_dir"]
+        task_path = run_paths.root / record["task_path"]
+        clean_solution_path = run_paths.root / record["clean_solution_path"]
+        refined_solution_path = agent.write_refined_solution_after_training(
+            workspace_dir=workspace_dir,
+            task_path=task_path,
+            clean_solution_path=clean_solution_path,
+            meta_prompt=prompt_bundle.meta_prompt,
+            training_status=job.status,
+            backend=job.backend,
+            output_dir=spec.output_dir,
+        )
+        if refined_solution_path is not None:
+            record["refined_solution_path"] = _relative_path(run_paths.root, refined_solution_path)
+            refinement_md = workspace_dir / "refinement.md"
+            if refinement_md.exists():
+                record["refinement_path"] = _relative_path(run_paths.root, refinement_md)
+            refinement_request = workspace_dir / "refinement_request.md"
+            if refinement_request.exists():
+                record["refinement_request_path"] = _relative_path(
+                    run_paths.root, refinement_request
+                )
+            refinement_response = workspace_dir / "refinement_response.md"
+            if refinement_response.exists():
+                record["refinement_response_path"] = _relative_path(
+                    run_paths.root, refinement_response
+                )
+    store.write_workspace_index(run_paths.workspaces_index_path, workspace_index)
+    if console is not None:
+        render_examples(console, workspace_records, run_paths.root)
 
     demo = _build_demo(settings, prompts_payload) if settings.demo.enabled else {}
     report = {

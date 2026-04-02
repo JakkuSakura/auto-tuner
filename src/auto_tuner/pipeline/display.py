@@ -56,9 +56,13 @@ def render_examples(console: Console, examples: list[dict[str, str]], run_root: 
             ("task_path", "task"),
             ("naive_solution_path", "naive"),
             ("clean_solution_path", "clean"),
+            ("agent_request_path", "agent_req"),
+            ("agent_response_path", "agent_resp"),
             ("grade_path", "grade"),
             ("refined_solution_path", "refined"),
-            ("generation_prompt_path", "prompt"),
+            ("refinement_path", "refinement"),
+            ("refinement_request_path", "refine_req"),
+            ("refinement_response_path", "refine_resp"),
         ]
         parts: list[str] = []
         for key, label in file_keys:
