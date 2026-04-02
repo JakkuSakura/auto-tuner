@@ -55,7 +55,6 @@ def render_examples(console: Console, examples: list[dict[str, str]], run_root: 
         file_keys = [
             ("task_path", "task"),
             ("naive_solution_path", "naive"),
-            ("clean_solution_path", "clean"),
             ("grade_path", "grade"),
             ("refined_solution_path", "refined"),
         ]

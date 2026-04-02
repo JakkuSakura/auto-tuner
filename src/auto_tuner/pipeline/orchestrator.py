@@ -210,9 +210,6 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         grade_rows: list[dict[str, object]] = []
         for example_id, grade in enumerate(grades, start=1):
             workspace_dir = run_paths.workspaces_root / f"example_{example_id:04d}"
-            clean_solution_path = workspace_dir / "clean_solution.py"
-            if grade.clean_solution:
-                clean_solution_path.write_text(grade.clean_solution)
             grade_payload = grade.model_dump()
             workspace_records[example_id - 1].update(
                 _write_grade_workspace(
@@ -221,10 +218,6 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                     grade=grade_payload,
                 )
             )
-            if clean_solution_path.exists():
-                workspace_records[example_id - 1]["clean_solution_path"] = _relative_path(
-                    run_paths.root, clean_solution_path
-                )
             grade_rows.append(
                 {
                     "example_id": example_id,
