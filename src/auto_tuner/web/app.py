@@ -11,7 +11,6 @@ from auto_tuner.pipeline.orchestrator import run_pipeline
 from auto_tuner.storage.artifacts import ArtifactStore
 from auto_tuner.storage.runs import RunRepository
 
-
 app = FastAPI(title="auto-tuner")
 
 
@@ -36,7 +35,11 @@ def health() -> dict[str, str]:
 @app.post("/api/runs")
 def create_run(config_path: str | None = None) -> dict[str, str]:
     settings = load_settings(config_path)
-    config_text = Path(config_path).read_text() if config_path and Path(config_path).exists() else ""
+    config_text = (
+        Path(config_path).read_text()
+        if config_path and Path(config_path).exists()
+        else ""
+    )
     pipeline_run = run_pipeline(settings, config_text)
     return {"run_id": pipeline_run.run_id, "status": pipeline_run.status}
 
@@ -55,7 +58,12 @@ def get_run(run_id: str) -> dict[str, object]:
     report = json.loads((run_dir / "report.json").read_text())
     training = json.loads((run_dir / "training_result.json").read_text())
     prompts = json.loads((run_dir / "prompts.json").read_text())
-    return {"run": run.model_dump(mode="json"), "report": report, "training": training, "prompts": prompts}
+    return {
+        "run": run.model_dump(mode="json"),
+        "report": report,
+        "training": training,
+        "prompts": prompts,
+    }
 
 
 @app.delete("/api/runs/{run_id}")

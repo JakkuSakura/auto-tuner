@@ -31,8 +31,10 @@ class OpenRouterPromptProvider:
                     self.config.prompt_model,
                     (
                         "You design dataset-generation prompts for an auto fine-tuning pipeline. "
-                        "Given the user's initial meta-prompt goal, return one concise generation prompt only. "
-                        "The generation prompt should create concrete code snippets and tasks from the high-level goal.\n\n"
+                        "Given the user's initial meta-prompt goal, "
+                        "return one concise generation prompt only. "
+                        "The generation prompt should create concrete code snippets and tasks "
+                        "from the high-level goal.\n\n"
                         f"User goal: {meta_prompt}"
                     ),
                 )
@@ -41,7 +43,9 @@ class OpenRouterPromptProvider:
                     self.config.grading_model,
                     (
                         "You design strict grading prompts for an auto fine-tuning pipeline. "
-                        "Given the user's initial meta-prompt goal, return one concise grading rubric prompt only.\n\n"
+                        "Given the user's initial meta-prompt goal, "
+                        "return one concise grading rubric prompt only."
+                        "\n\n"
                         f"User goal: {meta_prompt}"
                     ),
                 )

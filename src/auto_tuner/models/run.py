@@ -14,6 +14,8 @@ class RunPaths(BaseModel):
     training_result_path: Path
     report_path: Path
     config_snapshot_path: Path
+    workspaces_root: Path
+    workspaces_index_path: Path
 
 
 class PipelineRun(BaseModel):

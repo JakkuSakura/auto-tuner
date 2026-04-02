@@ -18,6 +18,8 @@ class ArtifactStore:
         run_id = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
         run_root = self.root / "runs" / run_id
         run_root.mkdir(parents=True, exist_ok=True)
+        workspaces_root = run_root / "workspaces"
+        workspaces_root.mkdir(parents=True, exist_ok=True)
         return RunPaths(
             root=run_root,
             generated_path=run_root / "generated.jsonl",
@@ -27,20 +29,22 @@ class ArtifactStore:
             training_result_path=run_root / "training_result.json",
             report_path=run_root / "report.json",
             config_snapshot_path=run_root / "config.snapshot.toml",
+            workspaces_root=workspaces_root,
+            workspaces_index_path=workspaces_root / "index.json",
         )
 
     def write_examples(self, path: Path, examples: list[DatasetExample]) -> None:
-        self._write_jsonl(path, [example.model_dump() for example in examples])
+        self.write_jsonl(path, [example.model_dump() for example in examples])
 
     def write_grade_results(self, path: Path, grades: list[GradeResult]) -> None:
-        self._write_jsonl(path, [grade.model_dump() for grade in grades])
+        self.write_jsonl(path, [grade.model_dump() for grade in grades])
 
     def write_records(self, path: Path, records: list[DatasetRecord]) -> None:
         rows = []
         for record in records:
             conversation = record.as_conversation()
             rows.append({**conversation, "text": record.response})
-        self._write_jsonl(path, rows)
+        self.write_jsonl(path, rows)
 
     def write_training_spec(self, path: Path, spec: TrainingSpec) -> None:
         path.write_text(json.dumps(spec.model_dump(), indent=2))
@@ -53,6 +57,12 @@ class ArtifactStore:
 
     def write_config_snapshot(self, path: Path, config_text: str) -> None:
         path.write_text(config_text)
+
+    def write_workspace_index(self, path: Path, payload: dict[str, object]) -> None:
+        path.write_text(json.dumps(payload, indent=2))
+
+    def write_jsonl(self, path: Path, rows: list[dict[str, object]]) -> None:
+        self._write_jsonl(path, rows)
 
     @staticmethod
     def write_json(path: Path, payload: dict[str, object] | list[object]) -> None:

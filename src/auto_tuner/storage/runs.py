@@ -16,7 +16,15 @@ class RunRepository:
         meta_path.write_text(json.dumps(run.model_dump(mode="json"), indent=2))
 
     def load(self, run_root: Path) -> PipelineRun:
-        return PipelineRun.model_validate_json((run_root / "run.json").read_text())
+        payload = json.loads((run_root / "run.json").read_text())
+        paths = payload.get("paths", {})
+        root = Path(paths.get("root", run_root))
+        paths.setdefault("workspaces_root", str(root / "workspaces"))
+        paths.setdefault(
+            "workspaces_index_path", str(root / "workspaces" / "index.json")
+        )
+        payload["paths"] = paths
+        return PipelineRun.model_validate(payload)
 
     def list_runs(self) -> list[PipelineRun]:
         if self.root is None:
@@ -24,7 +32,11 @@ class RunRepository:
         runs_root = self.root / "runs"
         if not runs_root.exists():
             return []
-        return [self.load(path) for path in sorted(runs_root.iterdir(), reverse=True) if path.is_dir()]
+        return [
+            self.load(path)
+            for path in sorted(runs_root.iterdir(), reverse=True)
+            if path.is_dir()
+        ]
 
     def delete(self, run_root: Path) -> None:
         shutil.rmtree(run_root)

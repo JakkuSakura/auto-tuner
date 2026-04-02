@@ -12,7 +12,9 @@ def test_load_settings_uses_defaults_for_existing_example(sample_config_path: Pa
 
     assert settings.training.backend == "fake"
     assert settings.generation.sample_count == 3
-    assert settings.generation.meta_prompt.startswith("Improve attribute access style and maintainability")
+    assert settings.generation.meta_prompt.startswith(
+        "Improve attribute access style and maintainability"
+    )
     assert settings.demo.example_models[0] == "Qwen/Qwen2.5-0.5B-Instruct"
 
 

@@ -5,7 +5,9 @@ from auto_tuner.llm.openrouter import PromptBundle
 from auto_tuner.models.dataset import DatasetExample, GradeResult
 
 
-def grade_example(example: DatasetExample, config: GradingConfig, prompts: PromptBundle) -> GradeResult:
+def grade_example(
+    example: DatasetExample, config: GradingConfig, prompts: PromptBundle
+) -> GradeResult:
     return GradeResult(
         passed=True,
         violations=[],

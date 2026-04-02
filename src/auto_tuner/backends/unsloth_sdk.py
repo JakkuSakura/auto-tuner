@@ -124,7 +124,10 @@ class UnslothTrainingBackend:
     @staticmethod
     def _unsupported_reason() -> str | None:
         if platform.system() == "Darwin":
-            return "Live Unsloth fine-tuning is guarded on macOS; use a Linux or Windows GPU environment."
+            return (
+                "Live Unsloth fine-tuning is guarded on macOS; "
+                "use a Linux or Windows GPU environment."
+            )
         if sys.version_info < (3, 11) or sys.version_info >= (3, 14):
             return "Live Unsloth fine-tuning requires Python 3.11-3.13."
         return None

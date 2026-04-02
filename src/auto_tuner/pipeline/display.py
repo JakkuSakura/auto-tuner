@@ -3,15 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
 from auto_tuner.llm.openrouter import PromptBundle
-from auto_tuner.models.dataset import DatasetExample, GradeResult
+from auto_tuner.models.dataset import GradeResult
 from auto_tuner.models.run import RunPaths
 from auto_tuner.models.training import TrainingJob, TrainingSpec
 
@@ -33,6 +31,7 @@ def render_run_header(
     console.print(f"[bold]Requested backend:[/bold] {requested_backend}")
     console.print(f"[bold]Resolved backend:[/bold] {resolved_backend}")
     console.print(f"[bold]Artifacts:[/bold] {run_paths.root}")
+    console.print(f"[bold]Workspaces:[/bold] {run_paths.workspaces_root}")
 
 
 def render_prompts(console: Console, prompts: PromptBundle, prompt_source: str) -> None:
@@ -43,21 +42,37 @@ def render_prompts(console: Console, prompts: PromptBundle, prompt_source: str) 
     console.print(f"[bold]Prompt source:[/bold] {prompt_source}")
 
 
-def render_examples(console: Console, examples: list[DatasetExample]) -> None:
-    console.rule("Examples")
-    for index, example in enumerate(examples, start=1):
-        console.print(Panel(example.task, title=f"Task #{index}", border_style="blue"))
-        before = Panel(
-            Syntax(example.naive_solution, "python", line_numbers=True),
-            title="Before (Naive)",
-            border_style="red",
-        )
-        after = Panel(
-            Syntax(example.clean_solution, "python", line_numbers=True),
-            title="After (Clean)",
-            border_style="green",
-        )
-        console.print(Columns([before, after], equal=True, expand=True))
+def render_examples(console: Console, examples: list[dict[str, str]], run_root: Path) -> None:
+    console.rule("Example Workspaces")
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", justify="right")
+    table.add_column("Workspace")
+    table.add_column("Files")
+
+    for example in examples:
+        example_id = example.get("example_id", "?")
+        workspace_dir = run_root / example["workspace_dir"]
+        file_keys = [
+            ("task_path", "task"),
+            ("naive_solution_path", "naive"),
+            ("clean_solution_path", "clean"),
+            ("grade_path", "grade"),
+            ("refined_solution_path", "refined"),
+        ]
+        parts: list[str] = []
+        for key, label in file_keys:
+            value = example.get(key)
+            if not value:
+                continue
+            path = run_root / value
+            try:
+                size = path.stat().st_size
+                lines = len(path.read_text().splitlines())
+                parts.append(f"{label}={path.name} ({size}B/{lines}L)")
+            except FileNotFoundError:
+                parts.append(f"{label}={Path(value).name} (missing)")
+        table.add_row(str(example_id), str(workspace_dir), ", ".join(parts))
+    console.print(table)
 
 
 def render_grades(console: Console, grades: list[GradeResult]) -> None:
