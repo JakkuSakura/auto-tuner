@@ -56,6 +56,14 @@ def _failed_job(
     )
 
 
+def _round_dir(run_root: Path, pass_index: int) -> Path:
+    return run_root / "passes" / f"pass_{pass_index:02d}"
+
+
+def _workspace_pass_dir(workspaces_root: Path, example_id: int, pass_index: int) -> Path:
+    return workspaces_root / f"example_{example_id:04d}" / f"pass_{pass_index:02d}"
+
+
 def run_pipeline(settings: Settings, config_text: str, console=None) -> PipelineRun:
     if not settings.openrouter.api_key:
         raise RuntimeError(
@@ -100,6 +108,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     spec: TrainingSpec | None = None
     job: TrainingJob | None = None
     failure: Exception | None = None
+    pass_summaries: list[dict[str, object]] = []
 
     try:
         record_event(
@@ -242,129 +251,304 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         )
 
         training_method = settings.training.method
-        if training_method == "sft":
-            records = [
-                DatasetRecord(prompt=example.task, response=grades[idx].clean_solution)
-                for idx, example in enumerate(generated)
-            ]
-            store.write_records(run_paths.training_dataset_path, records)
-            artifacts.append(
-                ArtifactRecord("training dataset (sft)", run_paths.training_dataset_path)
-            )
-        elif training_method == "grpo":
-            prompts = [example.task for example in generated]
-            store.write_prompt_dataset(run_paths.training_dataset_path, prompts)
-            artifacts.append(
-                ArtifactRecord(
-                    "training dataset (grpo prompts)", run_paths.training_dataset_path
-                )
-            )
-        else:
+        if training_method not in {"sft", "grpo"}:
             raise RuntimeError(f"Unsupported training.method: {training_method}")
 
-        record_event({"stage": "dataset_built", "method": training_method})
+        if training_method == "grpo":
+            raise RuntimeError(
+                "Strict multi-pass mode is not implemented for training.method='grpo' yet."
+            )
+
+        targets: list[str] = [grade.clean_solution for grade in grades]
 
         configured_output_dir = Path(settings.training.output_dir)
-        output_dir = (
+        base_output_dir = (
             configured_output_dir
             if configured_output_dir.is_absolute()
             else run_paths.root / configured_output_dir
         )
 
-        spec = TrainingSpec(
-            backend=resolved_backend,
-            method=training_method,
-            model_name=settings.training.model_name,
-            max_seq_length=settings.training.max_seq_length,
-            load_in_4bit=settings.training.load_in_4bit,
-            num_train_epochs=settings.training.num_train_epochs,
-            per_device_train_batch_size=settings.training.per_device_train_batch_size,
-            output_dir=str(output_dir),
-            dataset_path=str(run_paths.training_dataset_path),
-            lora_rank=settings.training.lora_rank,
-            learning_rate=settings.training.learning_rate,
-            grpo=(settings.training.grpo if training_method == "grpo" else None),
-        )
-        store.write_training_spec(run_paths.training_spec_path, spec)
-        artifacts.append(ArtifactRecord("training spec", run_paths.training_spec_path))
-        if console is not None:
-            render_training_spec(console, spec)
-
-        dataset_path = Path(spec.dataset_path)
         gpu_stats_path = run_paths.root / "gpu_stats.jsonl"
         monitor = GpuMonitor(gpu_stats_path)
         monitor.start()
         try:
-            if console is not None:
-                with console.status("Training..."):
-                    job = worker.train(dataset_path, spec)
-            else:
-                job = worker.train(dataset_path, spec)
-        except Exception as exc:
-            job = _failed_job(resolved_backend, dataset_path, spec.output_dir, exc)
-        finally:
-            monitor.stop()
-        store.write_training_result(run_paths.training_result_path, job)
-        artifacts.append(ArtifactRecord("training result", run_paths.training_result_path))
-        artifacts.append(ArtifactRecord("gpu stats", gpu_stats_path))
-        if console is not None:
-            render_training_result(console, job)
+            for pass_index in range(1, settings.grading.max_passes + 1):
+                record_event({"stage": "pass_started", "pass": pass_index})
 
-        record_event(
-            {
-                "stage": "trained",
-                "status": job.status,
-                "backend": job.backend,
-                "mode": job.mode,
-            }
-        )
+                pass_root = _round_dir(run_paths.root, pass_index)
+                pass_root.mkdir(parents=True, exist_ok=True)
 
-        if job.status == "completed" and worker.backend_name != "fake":
-            adapter_dir = Path(spec.output_dir)
-            if console is not None:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    TextColumn("{task.completed}/{task.total}"),
-                    console=console,
-                ) as progress:
-                    refined_task_id = progress.add_task(
-                        "Generating refined solutions", total=len(workspace_records)
+                records = [
+                    DatasetRecord(prompt=example.task, response=targets[idx])
+                    for idx, example in enumerate(generated)
+                ]
+                pass_dataset_path = pass_root / "training_dataset.jsonl"
+                store.write_records(pass_dataset_path, records)
+                store.write_records(run_paths.training_dataset_path, records)
+                if pass_index == 1:
+                    artifacts.append(
+                        ArtifactRecord(
+                            "training dataset (sft)", run_paths.training_dataset_path
+                        )
                     )
-                    for example_id, record in enumerate(workspace_records, start=1):
-                        task_rel = record.get("task_path")
-                        if task_rel:
-                            workspace_dir = run_paths.workspaces_root / f"example_{example_id:04d}"
-                            refined_solution_path = workspace_dir / "refined_solution.py"
+                record_event({"stage": "dataset_built", "pass": pass_index, "method": "sft"})
+
+                pass_output_dir = base_output_dir / f"pass_{pass_index:02d}"
+                spec = TrainingSpec(
+                    backend=resolved_backend,
+                    method=training_method,
+                    model_name=settings.training.model_name,
+                    max_seq_length=settings.training.max_seq_length,
+                    load_in_4bit=settings.training.load_in_4bit,
+                    num_train_epochs=settings.training.num_train_epochs,
+                    per_device_train_batch_size=settings.training.per_device_train_batch_size,
+                    output_dir=str(pass_output_dir),
+                    dataset_path=str(pass_dataset_path),
+                    lora_rank=settings.training.lora_rank,
+                    learning_rate=settings.training.learning_rate,
+                    grpo=None,
+                )
+                store.write_training_spec(pass_root / "training_spec.json", spec)
+                store.write_training_spec(run_paths.training_spec_path, spec)
+                if pass_index == 1:
+                    artifacts.append(ArtifactRecord("training spec", run_paths.training_spec_path))
+                if console is not None:
+                    console.rule(f"Pass {pass_index}")
+                    render_training_spec(console, spec)
+
+                dataset_path = Path(spec.dataset_path)
+                try:
+                    if console is not None:
+                        with console.status(f"Training (pass {pass_index})..."):
+                            job = worker.train(dataset_path, spec)
+                    else:
+                        job = worker.train(dataset_path, spec)
+                except Exception as exc:
+                    job = _failed_job(resolved_backend, dataset_path, spec.output_dir, exc)
+                store.write_training_result(pass_root / "training_result.json", job)
+                store.write_training_result(run_paths.training_result_path, job)
+                if pass_index == 1:
+                    artifacts.append(
+                        ArtifactRecord("training result", run_paths.training_result_path)
+                    )
+                    artifacts.append(ArtifactRecord("gpu stats", gpu_stats_path))
+                if console is not None:
+                    render_training_result(console, job)
+
+                record_event(
+                    {
+                        "stage": "trained",
+                        "pass": pass_index,
+                        "status": job.status,
+                        "backend": job.backend,
+                        "mode": job.mode,
+                    }
+                )
+
+                if job.status != "completed":
+                    raise RuntimeError(
+                        f"Training did not complete in pass {pass_index}: {job.summary}"
+                    )
+                if worker.backend_name == "fake":
+                    break
+
+                adapter_dir = Path(spec.output_dir)
+                refined_grades: list[dict[str, object]] = []
+                passed_count = 0
+
+                if console is not None:
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        TextColumn("{task.completed}/{task.total}"),
+                        console=console,
+                    ) as progress:
+                        refined_task_id = progress.add_task(
+                            f"Refining+grading (pass {pass_index})", total=len(workspace_records)
+                        )
+                        for example_id, record in enumerate(workspace_records, start=1):
+                            task_rel = record.get("task_path")
+                            if not task_rel:
+                                progress.advance(refined_task_id)
+                                continue
+                            pass_workspace_dir = _workspace_pass_dir(
+                                run_paths.workspaces_root, example_id, pass_index
+                            )
+                            pass_workspace_dir.mkdir(parents=True, exist_ok=True)
+
+                            refined_solution_path = pass_workspace_dir / "refined_solution.py"
                             refined_solution = worker.generate_refined_solution(
-                                workspace_dir=workspace_dir,
+                                workspace_dir=pass_workspace_dir,
                                 task_path=run_paths.root / task_rel,
                                 base_model_name=spec.model_name,
                                 adapter_dir=adapter_dir,
                             )
                             refined_solution_path.write_text(refined_solution)
-                            record["refined_solution_path"] = _relative_path(
-                                run_paths.root, refined_solution_path
+
+                            refined_grade = supervisor.grade_example(
+                                workspace_dir=pass_workspace_dir,
+                                meta_prompt=prompt_bundle.meta_prompt,
+                                grading_prompt=prompt_bundle.grading_prompt,
+                                task=generated[example_id - 1].task,
+                                naive_solution=refined_solution,
                             )
-                        progress.advance(refined_task_id)
-            else:
-                for example_id, record in enumerate(workspace_records, start=1):
-                    task_rel = record.get("task_path")
-                    if not task_rel:
-                        continue
-                    workspace_dir = run_paths.workspaces_root / f"example_{example_id:04d}"
-                    refined_solution_path = workspace_dir / "refined_solution.py"
-                    refined_solution = worker.generate_refined_solution(
-                        workspace_dir=workspace_dir,
-                        task_path=run_paths.root / task_rel,
-                        base_model_name=spec.model_name,
-                        adapter_dir=adapter_dir,
+                            refined_grade_payload = refined_grade.model_dump()
+                            ArtifactStore.write_json(
+                                pass_workspace_dir / "refined_grade.json", refined_grade_payload
+                            )
+
+                            if "passes" not in record:
+                                record["passes"] = []
+                            record["passes"].append(
+                                {
+                                    "pass": pass_index,
+                                    "workspace_dir": _relative_path(
+                                        run_paths.root, pass_workspace_dir
+                                    ),
+                                    "refined_solution_path": _relative_path(
+                                        run_paths.root, refined_solution_path
+                                    ),
+                                    "refined_grade_path": _relative_path(
+                                        run_paths.root,
+                                        pass_workspace_dir / "refined_grade.json",
+                                    ),
+                                    "passed": refined_grade.passed,
+                                    "severity": refined_grade.severity,
+                                    "violations": refined_grade.violations,
+                                }
+                            )
+
+                            if refined_grade.passed:
+                                passed_count += 1
+                            else:
+                                targets[example_id - 1] = refined_grade.clean_solution
+
+                            refined_grades.append(
+                                {
+                                    "example_id": example_id,
+                                    "pass": pass_index,
+                                    "workspace_dir": _relative_path(
+                                        run_paths.root, pass_workspace_dir
+                                    ),
+                                    "passed": refined_grade.passed,
+                                    "severity": refined_grade.severity,
+                                    "violations": refined_grade.violations,
+                                }
+                            )
+                            progress.advance(refined_task_id)
+                else:
+                    for example_id, record in enumerate(workspace_records, start=1):
+                        task_rel = record.get("task_path")
+                        if not task_rel:
+                            continue
+                        pass_workspace_dir = _workspace_pass_dir(
+                            run_paths.workspaces_root, example_id, pass_index
+                        )
+                        pass_workspace_dir.mkdir(parents=True, exist_ok=True)
+
+                        refined_solution_path = pass_workspace_dir / "refined_solution.py"
+                        refined_solution = worker.generate_refined_solution(
+                            workspace_dir=pass_workspace_dir,
+                            task_path=run_paths.root / task_rel,
+                            base_model_name=spec.model_name,
+                            adapter_dir=adapter_dir,
+                        )
+                        refined_solution_path.write_text(refined_solution)
+
+                        refined_grade = supervisor.grade_example(
+                            workspace_dir=pass_workspace_dir,
+                            meta_prompt=prompt_bundle.meta_prompt,
+                            grading_prompt=prompt_bundle.grading_prompt,
+                            task=generated[example_id - 1].task,
+                            naive_solution=refined_solution,
+                        )
+                        refined_grade_payload = refined_grade.model_dump()
+                        ArtifactStore.write_json(
+                            pass_workspace_dir / "refined_grade.json", refined_grade_payload
+                        )
+
+                        if "passes" not in record:
+                            record["passes"] = []
+                        record["passes"].append(
+                            {
+                                "pass": pass_index,
+                                "workspace_dir": _relative_path(run_paths.root, pass_workspace_dir),
+                                "refined_solution_path": _relative_path(
+                                    run_paths.root, refined_solution_path
+                                ),
+                                "refined_grade_path": _relative_path(
+                                    run_paths.root, pass_workspace_dir / "refined_grade.json"
+                                ),
+                                "passed": refined_grade.passed,
+                                "severity": refined_grade.severity,
+                                "violations": refined_grade.violations,
+                            }
+                        )
+
+                        if refined_grade.passed:
+                            passed_count += 1
+                        else:
+                            targets[example_id - 1] = refined_grade.clean_solution
+
+                        refined_grades.append(
+                            {
+                                "example_id": example_id,
+                                "pass": pass_index,
+                                "workspace_dir": _relative_path(run_paths.root, pass_workspace_dir),
+                                "passed": refined_grade.passed,
+                                "severity": refined_grade.severity,
+                                "violations": refined_grade.violations,
+                            }
+                        )
+
+                refined_grades_path = pass_root / "refined_grades.jsonl"
+                store.write_jsonl(refined_grades_path, refined_grades)
+                pass_summaries.append(
+                    {
+                        "pass": pass_index,
+                        "adapter_dir": str(adapter_dir),
+                        "dataset_path": str(pass_dataset_path),
+                        "passed": passed_count,
+                        "total": len(workspace_records),
+                    }
+                )
+
+                record_event(
+                    {
+                        "stage": "refined_graded",
+                        "pass": pass_index,
+                        "passed": passed_count,
+                        "total": len(workspace_records),
+                        "grades_path": _relative_path(run_paths.root, refined_grades_path),
+                    }
+                )
+
+                if passed_count == len(workspace_records):
+                    for example_id, record in enumerate(workspace_records, start=1):
+                        pass_workspace_dir = _workspace_pass_dir(
+                            run_paths.workspaces_root, example_id, pass_index
+                        )
+                        final_refined_path = (
+                            run_paths.workspaces_root
+                            / f"example_{example_id:04d}"
+                            / "refined_solution.py"
+                        )
+                        final_refined_path.write_text(
+                            (pass_workspace_dir / "refined_solution.py").read_text()
+                        )
+                        record["refined_solution_path"] = _relative_path(
+                            run_paths.root, final_refined_path
+                        )
+                    record_event({"stage": "refined", "pass": pass_index, "count": passed_count})
+                    break
+
+                if pass_index == settings.grading.max_passes:
+                    raise RuntimeError(
+                        f"Refined solutions still failed after {settings.grading.max_passes} passes: "
+                        f"{len(workspace_records) - passed_count}/{len(workspace_records)}"
                     )
-                    refined_solution_path.write_text(refined_solution)
-                    record["refined_solution_path"] = _relative_path(
-                        run_paths.root, refined_solution_path
-                    )
-            record_event({"stage": "refined", "count": len(workspace_records)})
+        finally:
+            monitor.stop()
     except Exception as exc:
         failure = exc
         job = _failed_job(resolved_backend, run_paths.training_dataset_path, settings.training.output_dir, exc)
@@ -390,6 +574,7 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         "run_id": run_paths.root.name,
         "generated_examples": len(generated),
         "passed_examples": sum(1 for grade in grades if grade.passed),
+        "passes": pass_summaries,
         "backend": job.backend,
         "training_status": job.status,
         "training_mode": job.mode,
