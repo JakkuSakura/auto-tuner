@@ -85,6 +85,15 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
     )
     resolved_backend = worker.resolved_backend
 
+    # Create stable, always-present run files so failures still produce
+    # a useful artifact directory for debugging.
+    run_paths.generated_path.write_text("")
+    artifacts.append(ArtifactRecord("generated examples", run_paths.generated_path))
+    run_paths.graded_path.write_text("")
+    artifacts.append(ArtifactRecord("grades", run_paths.graded_path))
+    store.write_workspace_index(run_paths.workspaces_index_path, {"version": 1, "examples": []})
+    artifacts.append(ArtifactRecord("workspaces index", run_paths.workspaces_index_path))
+
     if console is not None:
         render_run_header(console, run_paths, requested_backend, resolved_backend)
         with console.status("Writing config snapshot..."):
@@ -124,11 +133,23 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
                 "resolved_backend": resolved_backend,
             }
         )
-        if console is not None:
-            with console.status("Building prompts..."):
+        prompts_md_dir = run_paths.root / "prompts"
+        prompts_md_dir.mkdir(parents=True, exist_ok=True)
+        configured_meta_prompt_path = prompts_md_dir / "meta_prompt.md"
+        configured_meta_prompt_path.write_text(settings.generation.meta_prompt)
+        artifacts.append(ArtifactRecord("meta prompt (md)", configured_meta_prompt_path))
+
+        try:
+            if console is not None:
+                with console.status("Building prompts..."):
+                    prompt_bundle = supervisor.build_prompts(settings.generation.meta_prompt)
+            else:
                 prompt_bundle = supervisor.build_prompts(settings.generation.meta_prompt)
-        else:
-            prompt_bundle = supervisor.build_prompts(settings.generation.meta_prompt)
+        except Exception as exc:
+            error_path = prompts_md_dir / "prompt_build_error.md"
+            error_path.write_text(str(exc))
+            artifacts.append(ArtifactRecord("prompt build error", error_path))
+            raise
 
         prompts_payload = {
             "meta_prompt": prompt_bundle.meta_prompt,
@@ -140,15 +161,12 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         ArtifactStore.write_json(prompts_path, prompts_payload)
         artifacts.append(ArtifactRecord("prompts", prompts_path))
 
-        prompts_md_dir = run_paths.root / "prompts"
-        prompts_md_dir.mkdir(parents=True, exist_ok=True)
         meta_prompt_path = prompts_md_dir / "meta_prompt.md"
         generation_prompt_path = prompts_md_dir / "generation_prompt.md"
         grading_prompt_path = prompts_md_dir / "grading_prompt.md"
         meta_prompt_path.write_text(prompt_bundle.meta_prompt)
         generation_prompt_path.write_text(prompt_bundle.generation_prompt)
         grading_prompt_path.write_text(prompt_bundle.grading_prompt)
-        artifacts.append(ArtifactRecord("meta prompt (md)", meta_prompt_path))
         artifacts.append(ArtifactRecord("generation prompt (md)", generation_prompt_path))
         artifacts.append(ArtifactRecord("grading prompt (md)", grading_prompt_path))
         if console is not None:
@@ -186,11 +204,9 @@ def run_pipeline(settings: Settings, config_text: str, console=None) -> Pipeline
         workspace_records = generated_payload.workspace_records
         workspace_index: dict[str, object] = {"version": 1, "examples": workspace_records}
         store.write_workspace_index(run_paths.workspaces_index_path, workspace_index)
-        artifacts.append(ArtifactRecord("workspaces index", run_paths.workspaces_index_path))
 
         record_event({"stage": "generated", "count": len(generated)})
         store.write_jsonl(run_paths.generated_path, workspace_records)
-        artifacts.append(ArtifactRecord("generated examples", run_paths.generated_path))
 
         if console is not None:
             with Progress(
